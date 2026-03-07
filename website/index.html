@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Parakeet AI - AI Interview Assistant</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+      background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+      min-height: 100vh;
+      color: #f8fafc;
+    }
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 3rem 2rem;
+    }
+    header {
+      text-align: center;
+      margin-bottom: 3rem;
+    }
+    h1 {
+      font-size: 2.5rem;
+      background: linear-gradient(90deg, #22c55e, #3b82f6);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .tagline {
+      color: #94a3b8;
+      margin-top: 0.5rem;
+    }
+    .downloads {
+      background: rgba(30, 41, 59, 0.8);
+      border: 1px solid #334155;
+      border-radius: 1rem;
+      padding: 2rem;
+    }
+    .downloads h2 {
+      margin-bottom: 1.5rem;
+      font-size: 1.25rem;
+    }
+    .download-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 1rem;
+    }
+    .download-card {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 0.75rem;
+      padding: 1.5rem;
+      text-align: center;
+    }
+    .download-card h3 {
+      margin-bottom: 0.5rem;
+      font-size: 1.1rem;
+    }
+    .download-card p {
+      color: #94a3b8;
+      font-size: 0.9rem;
+      margin-bottom: 1rem;
+    }
+    .btn-download {
+      display: inline-block;
+      padding: 0.75rem 1.5rem;
+      background: #22c55e;
+      color: white;
+      text-decoration: none;
+      border-radius: 0.5rem;
+      font-weight: 600;
+      transition: background 0.2s;
+    }
+    .btn-download:hover {
+      background: #16a34a;
+    }
+    .platform-icon {
+      font-size: 2rem;
+      margin-bottom: 0.5rem;
+    }
+    .version {
+      color: #64748b;
+      font-size: 0.8rem;
+      margin-top: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Parakeet AI</h1>
+      <p class="tagline">Your AI-Powered Interview Assistant</p>
+    </header>
+
+    <section class="downloads">
+      <h2>Download for Your Platform</h2>
+      <div class="download-grid">
+        <div class="download-card">
+          <div class="platform-icon">🪟</div>
+          <h3>Windows</h3>
+          <p>.exe installer</p>
+          <a href="downloads/Parakeet AI_1.0.0_x64-setup.exe" class="btn-download" download>
+            Download for Windows
+          </a>
+          <p class="version">Windows 10/11 (64-bit)</p>
+        </div>
+
+        <div class="download-card">
+          <div class="platform-icon">🍎</div>
+          <h3>macOS</h3>
+          <p>.dmg disk image</p>
+          <a href="downloads/Parakeet AI_1.0.0_aarch64.dmg" class="btn-download" download>
+            Download for Mac (Apple Silicon)
+          </a>
+          <p class="version">macOS 10.15+</p>
+          <a href="downloads/Parakeet AI_1.0.0_x64.dmg" class="btn-download" style="margin-top: 0.5rem; display: inline-block;">
+            Download for Mac (Intel)
+          </a>
+        </div>
+
+        <div class="download-card">
+          <div class="platform-icon">🐧</div>
+          <h3>Linux</h3>
+          <p>.AppImage (no install)</p>
+          <a href="downloads/Parakeet AI_1.0.0_amd64.AppImage" class="btn-download" download>
+            Download for Linux
+          </a>
+          <p class="version">Ubuntu, Fedora, etc.</p>
+        </div>
+      </div>
+    </section>
+  </div>
+</body>
+</html>

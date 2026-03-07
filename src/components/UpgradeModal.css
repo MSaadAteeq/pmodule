@@ -1,0 +1,80 @@
+.upgrade-modal {
+  max-width: 520px;
+}
+
+.coupon-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.coupon-row .input {
+  flex: 1;
+}
+
+.pricing-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.pricing-card {
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 0.75rem;
+  padding: 1.25rem;
+  text-align: center;
+  position: relative;
+}
+
+.pricing-card.featured {
+  border-color: #22c55e;
+  background: rgba(34, 197, 94, 0.08);
+}
+
+.pricing-badge {
+  position: absolute;
+  top: -0.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #22c55e;
+  color: #0f172a;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.2rem 0.5rem;
+  border-radius: 0.25rem;
+}
+
+.pricing-title {
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+.pricing-price {
+  font-size: 1.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.pricing-period {
+  font-size: 0.85rem;
+  color: #94a3b8;
+  font-weight: normal;
+}
+
+.pricing-card .btn {
+  width: 100%;
+}
+
+.upgrade-close {
+  display: block;
+  width: 100%;
+  margin-top: 0.5rem;
+}
+
+@media (max-width: 480px) {
+  .pricing-grid {
+    grid-template-columns: 1fr;
+  }
+}

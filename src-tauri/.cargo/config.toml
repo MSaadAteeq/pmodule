@@ -1,0 +1,3 @@
+# Limit to 1 job to avoid out-of-memory during compile on low-RAM systems
+[build]
+jobs = 1

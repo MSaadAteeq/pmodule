@@ -1,0 +1,650 @@
+.app {
+  min-height: 100vh;
+  background: #0f172a;
+  color: #f1f5f9;
+}
+
+.app button,
+.app label.btn,
+.app label.screen-share-toggle,
+.app select {
+  cursor: default;
+}
+
+.header {
+  padding: 1rem 1.25rem;
+  text-align: center;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 0.75rem;
+  margin: 0.25rem;
+}
+
+.header h1 {
+  font-size: 2.5rem;
+  margin: 0;
+  color: #22c55e;
+}
+
+.header p {
+  color: #94a3b8;
+  margin: 0.5rem 0 0;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-top: 0.5rem;
+}
+
+.signed-in-as {
+  font-size: 0.8rem;
+  color: #94a3b8;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usage-badge {
+  font-size: 0.85rem;
+  color: #86efac;
+  background: rgba(34, 197, 94, 0.25);
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.5rem;
+}
+
+.main {
+  max-width: 600px;
+  margin: 0 auto;
+  padding: 2rem;
+  background: #0f172a;
+}
+
+.practice-card {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 1rem;
+  padding: 1.5rem;
+}
+
+.practice-card h2 {
+  margin: 0 0 0.5rem;
+}
+
+.subtitle {
+  color: #94a3b8;
+  margin-bottom: 2rem;
+}
+
+.controls {
+  margin-bottom: 1.5rem;
+}
+
+.btn {
+  padding: 0.75rem 1.5rem;
+  border: none;
+  border-radius: 0.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: default;
+}
+
+.btn-primary {
+  background: #22c55e;
+  color: white;
+}
+
+.btn-primary:hover {
+  background: #16a34a;
+}
+
+.btn-danger {
+  background: #ef4444;
+  color: white;
+}
+
+.btn-danger:hover {
+  background: #dc2626;
+}
+
+.suggestion-box {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 0.5rem;
+  padding: 1rem;
+}
+
+.suggestion-box h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+  color: #f1f5f9;
+}
+
+.suggestion-box p {
+  margin: 0;
+  color: #e2e8f0;
+}
+
+.question-edit-box .question-edit-input {
+  margin-top: 0.5rem;
+  font-size: 1rem;
+}
+
+.question-edit-hint {
+  margin: 0.5rem 0 0 !important;
+  font-size: 0.8rem;
+  color: #94a3b8;
+}
+
+.question-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.question-text-wrap {
+  flex: 1;
+  min-width: 0;
+}
+
+.question-row .question-text {
+  margin: 0;
+  color: #e2e8f0;
+}
+
+.btn-icon {
+  padding: 0.35rem 0.5rem;
+  margin-top: 0;
+  flex-shrink: 0;
+}
+
+.privacy-badge {
+  font-size: 0.85rem;
+  color: #22c55e;
+  margin-top: 0.5rem;
+  padding: 0.25rem 0.5rem;
+  background: rgba(34, 197, 94, 0.2);
+  border-radius: 0.5rem;
+  display: inline-block;
+}
+
+.click-through-hint {
+  background: rgba(59, 130, 246, 0.35);
+  color: #93c5fd;
+  margin-top: 0.5rem;
+}
+
+.btn-ghost {
+  background: rgba(51, 65, 85, 0.35);
+  color: #94a3b8;
+  border: none;
+  margin-top: 0.5rem;
+}
+
+.btn-ghost-active {
+  background: rgba(34, 197, 94, 0.3);
+  color: #86efac;
+}
+
+.btn-ghost:hover {
+  background: rgba(51, 65, 85, 0.5);
+  color: #f8fafc;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal {
+  background: rgba(30, 41, 59, 0.95);
+  border: none;
+  border-radius: 1rem;
+  padding: 1.5rem;
+  max-width: 420px;
+  width: 90%;
+}
+
+.modal h3 {
+  margin: 0 0 0.5rem;
+}
+
+.modal-desc {
+  color: #94a3b8;
+  font-size: 0.9rem;
+  margin-bottom: 1rem;
+}
+
+.input {
+  width: 100%;
+  padding: 0.75rem;
+  border: none;
+  border-radius: 0.5rem;
+  background: rgba(15, 23, 42, 0.5);
+  color: #f8fafc;
+  font-size: 1rem;
+  box-sizing: border-box;
+  margin-bottom: 1rem;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.status-box {
+  padding: 0.5rem 1rem;
+  background: rgba(59, 130, 246, 0.25);
+  border-radius: 0.5rem;
+  color: #93c5fd;
+  margin-bottom: 1rem;
+}
+
+.pulse {
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.error-box {
+  padding: 0.5rem 1rem;
+  background: rgba(239, 68, 68, 0.3);
+  border-radius: 0.5rem;
+  color: #fca5a5;
+  margin-bottom: 1rem;
+}
+
+.question-text {
+  font-style: italic;
+  color: #cbd5e1;
+}
+
+.answer-box {
+  border: 1px solid #334155;
+  background: #1e293b;
+}
+
+.answer-box h3 {
+  color: #4ade80;
+}
+
+.answer-content {
+  color: #f1f5f9;
+  line-height: 1.6;
+}
+
+.answer-content p {
+  margin: 0 0 0.75rem;
+  color: #e2e8f0;
+}
+
+.answer-content p:last-child {
+  margin-bottom: 0;
+}
+
+.answer-content ul,
+.answer-content ol {
+  color: #e2e8f0;
+  margin: 0.5rem 0;
+}
+
+.answer-content li {
+  margin: 0.25rem 0;
+}
+
+.answer-content h1,
+.answer-content h2,
+.answer-content h3,
+.answer-content h4 {
+  color: #f1f5f9;
+  margin: 1rem 0 0.5rem;
+}
+
+.answer-content pre {
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 0.5rem;
+  padding: 1rem;
+  overflow-x: auto;
+  margin: 0.75rem 0;
+}
+
+.answer-content code {
+  font-family: "Consolas", "Monaco", "Courier New", monospace;
+  font-size: 0.9rem;
+  color: #e2e8f0;
+}
+
+.answer-content pre code {
+  display: block;
+  white-space: pre;
+  color: #e2e8f0;
+}
+
+.answer-content :not(pre) > code {
+  background: #334155;
+  color: #f1f5f9;
+  padding: 0.15rem 0.4rem;
+  border-radius: 0.25rem;
+  font-size: 0.85em;
+}
+
+.audio-tip {
+  font-size: 0.8rem;
+  color: #94a3b8;
+  margin-bottom: 1rem;
+  padding: 0.5rem;
+  background: rgba(51, 65, 85, 0.25);
+  border-radius: 0.5rem;
+}
+
+.setup-card {
+  max-width: 480px;
+}
+
+.input-label {
+  display: block;
+  font-size: 0.9rem;
+  color: #94a3b8;
+  margin-bottom: 0.35rem;
+}
+
+.screen-share-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  font-size: 0.85rem;
+  color: #94a3b8;
+  user-select: none;
+}
+
+.screen-share-toggle input {
+  cursor: default;
+}
+
+.setup-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.setup-badge {
+  background: rgba(34, 197, 94, 0.2);
+  color: #86efac;
+  padding: 0.35rem 0.75rem;
+  border-radius: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.btn-sm {
+  padding: 0.35rem 0.75rem;
+  font-size: 0.85rem;
+}
+
+.document-upload {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.file-input {
+  position: absolute;
+  width: 0.1px;
+  height: 0.1px;
+  opacity: 0;
+  overflow: hidden;
+  z-index: -1;
+}
+
+/* Listening mode: slim bar at top, answer centered and always visible */
+.app-listening .main-listening {
+  padding: 0;
+  max-width: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.listening-bar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.5rem 1rem;
+  background: #1e293b;
+  border-bottom: 1px solid #334155;
+  border-radius: 0;
+  cursor: grab;
+}
+
+.listening-bar:active {
+  cursor: grabbing;
+}
+
+.listening-bar .btn {
+  flex-shrink: 0;
+  cursor: default;
+}
+
+.listening-status {
+  flex: 1;
+  font-size: 0.9rem;
+  color: #93c5fd;
+}
+
+.listening-error {
+  flex-shrink: 0;
+  margin: 0 0.5rem;
+}
+
+.listening-center {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 1rem 1.25rem;
+  min-height: 0;
+  overflow: hidden;
+  background: #0f172a;
+}
+
+.listening-placeholder {
+  color: #94a3b8;
+  font-size: 0.95rem;
+  margin: 0;
+}
+
+.center-box,
+.center-answer-box {
+  width: 100%;
+  max-width: 580px;
+  margin: 0.5rem 0;
+}
+
+/* ChatGPT-style: answer is the main focus, readable without scrolling */
+.center-answer-box {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  max-height: none;
+}
+
+.center-answer-box h3 {
+  flex-shrink: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #4ade80;
+  margin: 0 0 0.5rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.answer-content-visible {
+  flex: 1;
+  min-height: 0;
+  max-height: 70vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  font-size: 1.05rem;
+  line-height: 1.75;
+  color: #f1f5f9;
+}
+
+.answer-content-visible p {
+  margin: 0 0 0.75rem;
+  color: #e2e8f0;
+}
+
+.answer-content-visible p:last-child {
+  margin-bottom: 0;
+}
+
+.answer-content-visible ul,
+.answer-content-visible ol {
+  color: #e2e8f0;
+}
+
+.answer-content-visible li {
+  margin: 0.25rem 0;
+}
+
+.answer-content-visible h1,
+.answer-content-visible h2,
+.answer-content-visible h3,
+.answer-content-visible h4 {
+  color: #f1f5f9;
+}
+
+.answer-content-visible pre {
+  margin: 0.75rem 0;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 0.5rem;
+  padding: 1rem;
+}
+
+.answer-content-visible pre code {
+  color: #e2e8f0;
+}
+
+/* Keep question compact so answer is immediately visible */
+.main-listening .center-box.question-row {
+  flex-shrink: 0;
+}
+
+.main-listening .center-box.question-row h3 {
+  font-size: 0.85rem;
+  color: #94a3b8;
+}
+
+.main-listening .center-box.question-row .question-text {
+  font-size: 0.95rem;
+}
+
+/* Drag region when window has no title bar (data-tauri-drag-region) */
+.header-drag-area {
+  cursor: grab;
+}
+.header-drag-area:active {
+  cursor: grabbing;
+}
+
+/* Position picker overlay: 6 zones on screen */
+.position-picker-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(0, 0, 0, 0.5);
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 4px;
+  padding: 8px;
+  box-sizing: border-box;
+}
+
+.position-zone {
+  background: rgba(34, 197, 94, 0.25);
+  border: 2px dashed rgba(34, 197, 94, 0.6);
+  border-radius: 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #86efac;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.position-zone:hover {
+  background: rgba(34, 197, 94, 0.4);
+  border-color: #22c55e;
+}
+
+/* Click-through: semi-transparent so you see through; header & controls stay visible to exit */
+.app-click-through {
+  background: rgba(15, 23, 42, 0.3) !important;
+}
+
+body.parakeet-click-through {
+  background: rgba(15, 23, 42, 0.2) !important;
+}
+
+.app-click-through .main {
+  background: transparent !important;
+}
+
+.app-click-through .header {
+  background: rgba(30, 41, 59, 0.85) !important;
+  border: 1px solid #334155 !important;
+}
+
+.app-click-through .listening-bar {
+  background: rgba(30, 41, 59, 0.85) !important;
+  border-bottom: 1px solid #334155 !important;
+}
+
+.app-click-through .listening-center {
+  background: transparent !important;
+}
+
+.app-click-through .practice-card {
+  background: rgba(30, 41, 59, 0.7) !important;
+  border: 1px solid #334155 !important;
+}
+
+.app-click-through .center-box.question-row,
+.app-click-through .suggestion-box.question-edit-box {
+  background: rgba(30, 41, 59, 0.75) !important;
+  border: 1px solid #334155 !important;
+}
+
+/* Answer box stays solid so the AI content is readable */
+.app-click-through .answer-box,
+.app-click-through .suggestion-box.answer-box,
+.app-click-through .center-answer-box {
+  background: #1e293b !important;
+  border: 1px solid #334155 !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}

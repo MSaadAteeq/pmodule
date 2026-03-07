@@ -1,0 +1,5 @@
+# Place your built installers here:
+# - Parakeet-AI_1.0.0_x64-setup.exe (Windows NSIS installer)
+# - Parakeet-AI_1.0.0_aarch64.dmg (macOS Apple Silicon)
+# - Parakeet-AI_1.0.0_x64.dmg (macOS Intel)
+# - Parakeet-AI_1.0.0_amd64.AppImage (Linux)
