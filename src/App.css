@@ -1,5 +1,7 @@
 .app {
   min-height: 100vh;
+  display: flex;
+  flex-direction: column;
   background: #0f172a;
   color: #f1f5f9;
 }
@@ -62,6 +64,11 @@
   margin: 0 auto;
   padding: 2rem;
   background: #0f172a;
+  min-height: 50vh;
+}
+
+.main:not(.main-listening) {
+  flex: 1;
 }
 
 .practice-card {
@@ -73,6 +80,7 @@
 
 .practice-card h2 {
   margin: 0 0 0.5rem;
+  color: #f1f5f9;
 }
 
 .subtitle {

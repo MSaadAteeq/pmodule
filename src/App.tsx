@@ -149,6 +149,16 @@ function App() {
     if (type) setInterviewType(type);
   }, []);
 
+  // Click-through mode: toggle body class (must run every render, before any early return)
+  useEffect(() => {
+    if (clickThroughMode) {
+      document.body.classList.add("parakeet-click-through");
+    } else {
+      document.body.classList.remove("parakeet-click-through");
+    }
+    return () => document.body.classList.remove("parakeet-click-through");
+  }, [clickThroughMode]);
+
   const saveSetup = () => {
     const pos = interviewPosition.trim();
     if (!pos) {
@@ -359,15 +369,6 @@ function App() {
   }
 
   const isListeningLayout = setupComplete && !showSetupForm && (isListening || !!question || !!suggestion);
-
-  useEffect(() => {
-    if (clickThroughMode) {
-      document.body.classList.add("parakeet-click-through");
-    } else {
-      document.body.classList.remove("parakeet-click-through");
-    }
-    return () => document.body.classList.remove("parakeet-click-through");
-  }, [clickThroughMode]);
 
   return (
     <div className={`app ${isListeningLayout ? "app-listening" : ""} ${clickThroughMode ? "app-click-through" : ""}`}>

@@ -20,9 +20,10 @@
         "resizable": true,
         "fullscreen": false,
         "contentProtected": true,
-        "transparent": true,
+        "transparent": false,
         "decorations": false,
         "alwaysOnTop": true,
+        "backgroundColor": "#0f172a",
         "x": 0,
         "y": 0
       }
