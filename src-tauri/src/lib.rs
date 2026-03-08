@@ -215,6 +215,12 @@ struct AnswerPayload {
     answer: String,
 }
 
+#[derive(serde::Deserialize)]
+struct PreviousQa {
+    question: String,
+    answer: String,
+}
+
 #[tauri::command]
 fn set_listening(listening: bool) {
     LISTENING.store(listening, Ordering::SeqCst);
@@ -430,6 +436,7 @@ async fn answer_from_transcript(
     transcript: String,
     interview_context: Option<String>,
     document_text: Option<String>,
+    previous_qa: Option<Vec<PreviousQa>>,
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
     let api_key = get_openai_key()?;
@@ -531,6 +538,20 @@ async fn answer_from_transcript(
             || low.starts_with("write ") || low.starts_with("create ") || low.starts_with("implement ")
     };
 
+    let has_previous_qa = previous_qa.as_ref().map(|v| !v.is_empty()).unwrap_or(false);
+    let previous_qa_block = previous_qa.as_ref().map(|v| {
+        v.iter()
+            .map(|qa| format!("Q: {}\nA: {}", qa.question.trim(), qa.answer.trim()))
+            .collect::<Vec<_>>()
+            .join("\n\n")
+    }).filter(|s| !s.is_empty());
+
+    let memory_instruction = if has_previous_qa {
+        "\nCONVERSATION MEMORY: You are given previous question(s) and answer(s) above. When the new question refers to \"that\", \"the code\", \"the previous answer\", \"explain it\", \"elaborate\", etc., answer in context of that previous Q&A. Train on and use the previous content to give a coherent follow-up."
+    } else {
+        ""
+    };
+
     let system_content = format!(
         r#"You are an expert interview coach. Your answers must be LIGHTNING-FAST to deliver, comprehensive, and interview-ready.
 
@@ -538,21 +559,31 @@ DEPTH & INTELLIGENCE:
 - Infer EVERY detail the interviewer wants from their question and tone. Read between the lines: if they seem probing, cover edge cases; if they seem time-pressed, be concise but complete.
 - Understand interviewer intent and emotion: curiosity, skepticism, urgency, or "testing depth" — tailor your answer accordingly.
 - Leave nothing out that a senior interviewer would expect. Anticipate follow-up questions and preempt them.
-{}
+{}{}
 
 CODE QUESTIONS (write/create/implement): Provide the BEST possible production-quality code. Use a markdown code block with language. Then add a heading "Key concepts the interviewer may ask about" and bullet points for: design decisions, time/space complexity, edge cases, alternative approaches. This lets the candidate answer follow-ups easily.
 
 NON-CODE: Clear, comprehensive answer. Include every relevant detail. Can use bullets for clarity. Aim to be thorough but speakable aloud."#,
-        if document_instruction.is_empty() { String::new() } else { format!("\nREFERENCE DOCUMENT: {}\n", document_instruction) }
+        if document_instruction.is_empty() { String::new() } else { format!("\nREFERENCE DOCUMENT: {}\n", document_instruction) },
+        memory_instruction
     );
 
-    let user_content = if context_block.is_empty() {
-        format!("Interviewer asked: \"{}\"\n\nAnswer comprehensively. Cover every aspect they might care about.", text)
-    } else {
-        format!(
-            "Context:\n{}\n\nInterviewer asked: \"{}\"\n\nAnswer comprehensively. Use the context when relevant. Cover every aspect they might care about.",
-            context_block, text
-        )
+    let user_content = {
+        let mut parts = Vec::new();
+        if !context_block.is_empty() {
+            parts.push(format!("Context:\n{}", context_block));
+        }
+        if let Some(ref qa) = previous_qa_block {
+            parts.push(format!(
+                "Previous Q&A (use this when the new question refers to it, e.g. explain that code / elaborate on the previous answer):\n---\n{}\n---",
+                qa
+            ));
+        }
+        parts.push(format!(
+            "Interviewer asked: \"{}\"\n\nAnswer comprehensively. Use any context above when relevant. Cover every aspect they might care about.",
+            text
+        ));
+        parts.join("\n\n")
     };
 
     let max_tokens = if is_code_question { 1500 } else { 900 };

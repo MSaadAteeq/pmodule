@@ -1,42 +1,50 @@
+/* Admin panel — design system tokens */
+
 .admin-panel {
   max-width: 560px;
   max-height: 90vh;
   overflow-y: auto;
+  padding: var(--space-2);
 }
 
 .admin-section {
-  margin-bottom: 1.25rem;
+  margin-bottom: var(--space-6);
 }
 
 .admin-section h4 {
-  margin: 0 0 0.5rem;
-  font-size: 0.95rem;
-  color: #94a3b8;
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .admin-hint {
-  font-size: 0.85rem;
-  color: #94a3b8;
-  margin: 0 0 0.5rem;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  margin: 0 0 var(--space-2);
+  line-height: var(--leading-normal);
 }
 
 .admin-form {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  gap: var(--space-2);
   align-items: center;
 }
 
 .admin-form .input {
   min-width: 120px;
+  margin-bottom: 0;
 }
 
 .admin-label {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
-  color: #94a3b8;
-  font-size: 0.9rem;
+  gap: var(--space-2);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
 }
 
 .admin-input-num {
@@ -47,18 +55,24 @@
   list-style: none;
   padding: 0;
   margin: 0;
-  border: 1px solid #334155;
-  border-radius: 0.5rem;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
   overflow: hidden;
+  background: var(--bg-raised);
 }
 
 .admin-list-item {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid #334155;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border-subtle);
   flex-wrap: wrap;
+  transition: background var(--transition-fast);
+}
+
+.admin-list-item:hover {
+  background: rgba(255, 255, 255, 0.02);
 }
 
 .admin-list-item:last-child {
@@ -66,8 +80,9 @@
 }
 
 .admin-coupon-code {
-  font-weight: 600;
+  font-weight: var(--font-semibold);
   min-width: 100px;
+  color: var(--text-primary);
 }
 
 .admin-user-info {
@@ -75,23 +90,26 @@
   min-width: 140px;
   display: flex;
   flex-direction: column;
-  gap: 0.2rem;
+  gap: var(--space-1);
 }
 
 .admin-user-row .admin-user-email {
-  font-weight: 500;
+  font-weight: var(--font-medium);
+  color: var(--text-primary);
 }
 
 .admin-user-coupon {
-  font-size: 0.8rem;
-  color: #94a3b8;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
 }
 
 .admin-user-plan {
   min-width: 80px;
-  color: #94a3b8;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
 }
 
+/* Confirm overlay / modal */
 .confirm-overlay {
   position: fixed;
   inset: 0;
@@ -99,55 +117,57 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 100;
+  z-index: 110;
+  backdrop-filter: blur(4px);
+  animation: overlayIn 0.2s var(--ease-out);
 }
 
 .confirm-modal {
-  background: #1e293b;
-  border: 1px solid #334155;
-  border-radius: 0.75rem;
-  padding: 1.25rem 1.5rem;
+  background: var(--bg-overlay);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  padding: var(--space-6);
   min-width: 320px;
   max-width: 90vw;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-modal);
+  animation: modalIn 0.25s var(--ease-out);
 }
 
 .confirm-modal h3 {
-  margin: 0 0 0.75rem;
-  font-size: 1.1rem;
-  color: #f1f5f9;
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
 }
 
 .confirm-message {
-  margin: 0 0 1.25rem;
-  font-size: 0.95rem;
-  color: #cbd5e1;
-  line-height: 1.4;
+  margin: 0 0 var(--space-5);
+  font-size: var(--text-base);
+  color: var(--text-secondary);
+  line-height: var(--leading-relaxed);
 }
 
 .confirm-message strong {
-  color: #f1f5f9;
+  color: var(--text-primary);
 }
 
 .confirm-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 0.75rem;
+  gap: var(--space-3);
+}
+
+.confirm-actions .btn-ghost {
+  margin-top: 0;
 }
 
 .confirm-actions .btn-danger {
-  background: rgba(248, 113, 113, 0.2);
-  color: #f87171;
+  background: var(--danger-muted);
+  color: var(--error-text);
+  border: 1px solid rgba(239, 68, 68, 0.4);
 }
 
 .confirm-actions .btn-danger:hover {
-  background: rgba(248, 113, 113, 0.35);
-}
-
-.btn-danger {
-  color: #f87171;
-}
-
-.btn-danger:hover {
-  background: rgba(248, 113, 113, 0.15);
+  background: rgba(239, 68, 68, 0.3);
+  color: #fca5a5;
 }

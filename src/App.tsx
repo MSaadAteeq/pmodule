@@ -6,7 +6,7 @@ import { extractTextFromFile } from "./documentParser";
 import { canStartSession, formatUsage, type UserUsage } from "./lib/supabase";
 import { getStoredToken, clearStoredToken } from "./lib/auth";
 import { fetchOrCreateUsage, recordSession } from "./lib/usage";
-import { tauriInvoke } from "./lib/tauri";
+import { tauriInvoke, isTauri } from "./lib/tauri";
 import { AuthScreen } from "./components/AuthScreen";
 import { UpgradeModal } from "./components/UpgradeModal";
 import { AdminPanel } from "./components/AdminPanel";
@@ -37,6 +37,9 @@ function App() {
   const [showPositionPicker, setShowPositionPicker] = useState(false);
   const [clickThroughMode, setClickThroughMode] = useState(false);
   const [editableQuestion, setEditableQuestion] = useState<string | null>(null);
+  const [typeQuestionInput, setTypeQuestionInput] = useState("");
+  const [conversationHistory, setConversationHistory] = useState<{ question: string; answer: string }[]>([]);
+  const [memorySavedMessage, setMemorySavedMessage] = useState(false);
   const [hideForScreenShare, setHideForScreenShare] = useState(() =>
     localStorage.getItem(HIDE_FOR_SCREEN_SHARE_KEY) === "1"
   );
@@ -45,6 +48,8 @@ function App() {
   const stopRequestedRef = useRef<boolean>(false);
   const fallbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sessionStartTimeRef = useRef<number>(0);
+  const [showTitleBarControls, setShowTitleBarControls] = useState(() => isTauri());
+  const [showAssistantScreen, setShowAssistantScreen] = useState(false);
 
   // Tauri window: skip taskbar, always on top
   useEffect(() => {
@@ -205,6 +210,11 @@ function App() {
         setQuestion(e.payload.question);
         setSuggestion(e.payload.answer);
         setStatus("");
+        setConversationHistory((prev) => {
+          const next = [...prev, { question: e.payload.question, answer: e.payload.answer }];
+          return next.slice(-5);
+        });
+        setMemorySavedMessage(true);
       }
     );
 
@@ -226,6 +236,12 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!memorySavedMessage) return;
+    const t = setTimeout(() => setMemorySavedMessage(false), 4000);
+    return () => clearTimeout(t);
+  }, [memorySavedMessage]);
+
   const submitTranscript = async (transcript: string) => {
     const trimmed = transcript.trim();
     if (trimmed.length < 3) return;
@@ -241,6 +257,7 @@ function App() {
         transcript: trimmed,
         interviewContext: interviewContext || undefined,
         documentText: documentText.trim() || undefined,
+        previousQa: conversationHistory.length > 0 ? conversationHistory : undefined,
       });
     } catch (err) {
       setError(String(err));
@@ -365,13 +382,169 @@ function App() {
   };
 
   if (!session) {
-    return <AuthScreen onAuth={refreshSession} />;
+    return (
+      <div className="app">
+        <header className="title-bar">
+          <span className="title-bar-title" data-tauri-drag-region>AI Assistant</span>
+          {showTitleBarControls && (
+            <div className="title-bar-controls">
+              <button
+                type="button"
+                className="title-bar-btn title-bar-minimize"
+                onClick={() => getCurrentWindow().minimize()}
+                title="Minimize"
+                aria-label="Minimize"
+              />
+              <button
+                type="button"
+                className="title-bar-btn title-bar-maximize"
+                onClick={() => getCurrentWindow().toggleMaximize()}
+                title="Maximize"
+                aria-label="Maximize"
+              />
+              <button
+                type="button"
+                className="title-bar-btn title-bar-close"
+                onClick={() => getCurrentWindow().close()}
+                title="Close"
+                aria-label="Close"
+              />
+            </div>
+          )}
+        </header>
+        <AuthScreen onAuth={refreshSession} />
+      </div>
+    );
   }
 
   const isListeningLayout = setupComplete && !showSetupForm && (isListening || !!question || !!suggestion);
 
+  /* Home view after login: section "AI Interview Assistant" → opens practice screen */
+  if (!showAssistantScreen) {
+    return (
+      <div className="app">
+        <header className="title-bar">
+          <span className="title-bar-title" data-tauri-drag-region>AI Assistant</span>
+          {showTitleBarControls && (
+            <div className="title-bar-controls">
+              <button type="button" className="title-bar-btn title-bar-minimize" onClick={() => getCurrentWindow().minimize()} title="Minimize" aria-label="Minimize" />
+              <button type="button" className="title-bar-btn title-bar-maximize" onClick={() => getCurrentWindow().toggleMaximize()} title="Maximize" aria-label="Maximize" />
+              <button type="button" className="title-bar-btn title-bar-close" onClick={() => getCurrentWindow().close()} title="Close" aria-label="Close" />
+            </div>
+          )}
+        </header>
+        <main className="main main-home">
+          <div className="home-welcome">
+            <h1 className="home-title">Welcome</h1>
+            {session?.user?.email && <p className="home-subtitle">Signed in as {session.user.email}</p>}
+          </div>
+          <div className="home-sections">
+            <button
+              type="button"
+              className="home-section-card"
+              onClick={() => setShowAssistantScreen(true)}
+              aria-label="Open AI Interview Assistant"
+            >
+              <span className="home-section-icon" aria-hidden>🎤</span>
+              <h2 className="home-section-title">AI Interview Assistant</h2>
+              <p className="home-section-desc">Works with Zoom, Meet, Teams – listens to questions, gives you answers to read. Start listening or type a question to get AI answers.</p>
+            </button>
+            <button
+              type="button"
+              className="home-section-card"
+              onClick={() => setShowAssistantScreen(true)}
+              aria-label="Open Project Management Assistant"
+            >
+              <span className="home-section-icon" aria-hidden>📋</span>
+              <h2 className="home-section-title">Project Management</h2>
+              <p className="home-section-desc">This AI Assistant helps you deal with clients in meetings. Get real-time suggestions, talking points, and answers during Zoom, Meet, or Teams calls so you stay on top of project discussions.</p>
+            </button>
+            <button
+              type="button"
+              className="home-section-card"
+              onClick={() => setShowAssistantScreen(true)}
+              aria-label="Open Chat with AI"
+            >
+              <span className="home-section-icon" aria-hidden>💬</span>
+              <h2 className="home-section-title">Chat with AI</h2>
+              <p className="home-section-desc">Have a natural conversation with AI. Ask questions, get instant answers, and brainstorm ideas through an intuitive chat interface.</p>
+            </button>
+            <button
+              type="button"
+              className="home-section-card"
+              onClick={() => setShowAssistantScreen(true)}
+              aria-label="Open Interview Preparation AI BOT"
+            >
+              <span className="home-section-icon" aria-hidden>🎯</span>
+              <h2 className="home-section-title">Interview Preparation AI BOT</h2>
+              <p className="home-section-desc">Prepare for your next interview with AI. Practice common questions, get sample answers, and refine your responses for technical and behavioral rounds.</p>
+            </button>
+            <button
+              type="button"
+              className="home-section-card"
+              onClick={() => setShowAssistantScreen(true)}
+              aria-label="Open AI Sales Assistant"
+            >
+              <span className="home-section-icon" aria-hidden>🤝</span>
+              <h2 className="home-section-title">AI Sales Assistant</h2>
+              <p className="home-section-desc">Helps you deal with clients in meetings. Get real-time pitch suggestions, objection handling, and talking points during sales calls on Zoom, Meet, or Teams.</p>
+            </button>
+            <button
+              type="button"
+              className="home-section-card"
+              onClick={() => setShowAssistantScreen(true)}
+              aria-label="Open HR Calling Agent"
+            >
+              <span className="home-section-icon" aria-hidden>📞</span>
+              <h2 className="home-section-title">HR Calling Agent</h2>
+              <p className="home-section-desc">AI agent that calls interviewees, aligns schedules, and schedules online meetings. The HR BOT conducts the interview at the appointed time.</p>
+            </button>
+            <button
+              type="button"
+              className="home-section-card"
+              onClick={() => setShowAssistantScreen(true)}
+              aria-label="Open Upwork AI Bidder"
+            >
+              <span className="home-section-icon" aria-hidden>📝</span>
+              <h2 className="home-section-title">Upwork AI Bidder</h2>
+              <p className="home-section-desc">Hunts jobs on Upwork and creates tailored proposals from the job or project description to pitch to clients and win more work.</p>
+            </button>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className={`app ${isListeningLayout ? "app-listening" : ""} ${clickThroughMode ? "app-click-through" : ""}`}>
+      <header className="title-bar">
+        <span className="title-bar-title" data-tauri-drag-region>AI Assistant</span>
+        {showTitleBarControls && (
+          <div className="title-bar-controls">
+            <button
+              type="button"
+              className="title-bar-btn title-bar-minimize"
+              onClick={() => getCurrentWindow().minimize()}
+              title="Minimize"
+              aria-label="Minimize"
+            />
+            <button
+              type="button"
+              className="title-bar-btn title-bar-maximize"
+              onClick={() => getCurrentWindow().toggleMaximize()}
+              title="Maximize"
+              aria-label="Maximize"
+            />
+            <button
+              type="button"
+              className="title-bar-btn title-bar-close"
+              onClick={() => getCurrentWindow().close()}
+              title="Close"
+              aria-label="Close"
+            />
+          </div>
+        )}
+      </header>
       {showPositionPicker && (
         <div className="position-picker-overlay">
           {(["top-left", "top-center", "top-right", "bottom-left", "bottom-center", "bottom-right"] as const).map((zone) => (
@@ -404,7 +577,10 @@ function App() {
           </p>
         </div>
         <div className="header-actions">
-          {(typeof window !== "undefined" && !!(window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__) && (
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setShowAssistantScreen(false)} title="Back to home">
+            ← Home
+          </button>
+          {isTauri() && (
             <>
               <button
                 type="button"
@@ -478,6 +654,39 @@ function App() {
                 <button type="button" className="btn btn-primary btn-sm" onClick={startPractice}>
                   Start Listening
                 </button>
+                <div className="listening-type-row">
+                  <input
+                    type="text"
+                    className="input listening-type-input"
+                    value={typeQuestionInput}
+                    onChange={(e) => setTypeQuestionInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        const t = typeQuestionInput.trim();
+                        if (t.length >= 3) {
+                          submitTranscript(t);
+                          setTypeQuestionInput("");
+                        }
+                      }
+                    }}
+                    placeholder="Or type a question and get AI answer"
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    onClick={() => {
+                      const t = typeQuestionInput.trim();
+                      if (t.length >= 3) {
+                        submitTranscript(t);
+                        setTypeQuestionInput("");
+                      }
+                    }}
+                    title="Generate answer from typed question"
+                  >
+                    Get answer
+                  </button>
+                </div>
                 <button
                   type="button"
                   className="btn btn-ghost btn-sm"
@@ -542,6 +751,9 @@ function App() {
                 <div className="answer-content answer-content-visible">
                   <ReactMarkdown>{suggestion}</ReactMarkdown>
                 </div>
+                {memorySavedMessage && (
+                  <p className="memory-saved-badge">Previous question saved to memory — follow-ups can refer to this.</p>
+                )}
               </div>
             )}
             {!question && !suggestion && !error && (
@@ -642,14 +854,49 @@ function App() {
 
           <div className="controls">
             {!isListening ? (
-              <button
-                className="btn btn-primary"
-                onClick={startPractice}
-                disabled={!!(session && usage === null)}
-                title={session && usage === null ? "Loading..." : undefined}
-              >
-                {session && usage === null ? "Loading..." : "Start Listening"}
-              </button>
+              <>
+                <button
+                  className="btn btn-primary"
+                  onClick={startPractice}
+                  disabled={!!(session && usage === null)}
+                  title={session && usage === null ? "Loading..." : undefined}
+                >
+                  {session && usage === null ? "Loading..." : "Start Listening"}
+                </button>
+                <div className="controls-type-row">
+                  <input
+                    type="text"
+                    className="input controls-type-input"
+                    value={typeQuestionInput}
+                    onChange={(e) => setTypeQuestionInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        const t = typeQuestionInput.trim();
+                        if (t.length >= 3) {
+                          submitTranscript(t);
+                          setTypeQuestionInput("");
+                        }
+                      }
+                    }}
+                    placeholder="Or type a question and get AI answer"
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={() => {
+                      const t = typeQuestionInput.trim();
+                      if (t.length >= 3) {
+                        submitTranscript(t);
+                        setTypeQuestionInput("");
+                      }
+                    }}
+                    title="Generate answer from typed question"
+                  >
+                    Get answer
+                  </button>
+                </div>
+              </>
             ) : (
               <button className="btn btn-danger" onClick={stopPractice}>
                 Stop Listening
@@ -713,6 +960,9 @@ function App() {
               <div className="answer-content">
                 <ReactMarkdown>{suggestion}</ReactMarkdown>
               </div>
+              {memorySavedMessage && (
+                <p className="memory-saved-badge">Previous question saved to memory — follow-ups can refer to this.</p>
+              )}
             </div>
           )}
         </div>
