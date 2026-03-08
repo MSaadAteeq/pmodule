@@ -8,6 +8,23 @@
   margin-bottom: var(--space-5);
 }
 
+.update-notes {
+  list-style: disc;
+  padding-left: var(--space-5);
+  margin: 0 0 var(--space-4);
+  color: var(--text-primary);
+}
+
+.update-notes li {
+  margin-bottom: var(--space-1);
+}
+
+.upgrade-modal .modal-err {
+  color: var(--danger, #dc2626);
+  font-size: var(--text-sm);
+  margin-bottom: var(--space-3);
+}
+
 .coupon-row {
   display: flex;
   gap: var(--space-2);

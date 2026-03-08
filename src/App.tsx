@@ -10,6 +10,8 @@ import { tauriInvoke, isTauri } from "./lib/tauri";
 import { AuthScreen } from "./components/AuthScreen";
 import { UpgradeModal } from "./components/UpgradeModal";
 import { AdminPanel } from "./components/AdminPanel";
+import { UpdateModal } from "./components/UpdateModal";
+import { CloudModal } from "./components/CloudModal";
 import "./App.css";
 
 const INTERVIEW_POSITION_STORAGE = "parakeet-interview-position";
@@ -50,6 +52,8 @@ function App() {
   const sessionStartTimeRef = useRef<number>(0);
   const [showTitleBarControls, setShowTitleBarControls] = useState(() => isTauri());
   const [showAssistantScreen, setShowAssistantScreen] = useState(false);
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
+  const [showCloudModal, setShowCloudModal] = useState(false);
 
   // Tauri window: skip taskbar, always on top
   useEffect(() => {
@@ -611,6 +615,16 @@ function App() {
           <button type="button" className="btn btn-ghost" onClick={() => setShowUpgrade(true)}>
             Upgrade
           </button>
+          {isTauri() && (
+            <>
+              <button type="button" className="btn btn-ghost" onClick={() => setShowCloudModal(true)} title="Cloud sync – use same account on all devices">
+                Cloud
+              </button>
+              <button type="button" className="btn btn-ghost" onClick={() => setShowUpdateModal(true)} title="Check for app updates">
+                Update
+              </button>
+            </>
+          )}
           {session?.user?.role === "superadmin" && (
             <button type="button" className="btn btn-ghost" onClick={() => setShowAdmin(true)} title="Admin">
               Admin
@@ -638,6 +652,8 @@ function App() {
 
       {showUpgrade && <UpgradeModal onClose={() => setShowUpgrade(false)} onApplied={() => setShowUpgrade(false)} onUsageUpdate={setUsage} />}
       {showAdmin && <AdminPanel onClose={() => setShowAdmin(false)} />}
+      {showUpdateModal && <UpdateModal onClose={() => setShowUpdateModal(false)} />}
+      {showCloudModal && <CloudModal onClose={() => setShowCloudModal(false)} />}
 
       {isListeningLayout ? (
         <main className="main main-listening">

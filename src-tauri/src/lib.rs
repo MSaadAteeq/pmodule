@@ -3,6 +3,7 @@
     windows_subsystem = "windows"
 )]
 
+mod cloud;
 mod db;
 
 use base64::{engine::general_purpose::STANDARD, Engine};
@@ -71,14 +72,13 @@ async fn transcribe_and_answer(
                 .part(
                     "file",
                     reqwest::multipart::Part::bytes(audio_bytes)
-                        .file_name("audio.webm")
-                        .mime_str("audio/webm")
-                        .map_err(|e| e.to_string())?,
+                .file_name("audio.webm")
+                .mime_str("audio/webm")
+                .map_err(|e| e.to_string())?,
                 )
                 .text("model", "whisper-1")
                 .text("response_format", "json")
-                .text("language", "en")
-                .text("prompt", "Interview question. Tell me about"),
+                .text("prompt", "Interview question. Roman Urdu, Urdu in Latin script: main, kya, kaise, kyoon, tum, hai, ho, mujhe, aap, yeh, woh, kya hai, bataiye, samjhaye."),
         )
         .send()
         .await
@@ -112,49 +112,6 @@ async fn transcribe_and_answer(
     // Emit transcript to frontend
     let _ = app_handle.emit("transcript", &text);
 
-    // Only generate answer if it looks like a question (has ? or common question words)
-    let low = text.to_lowercase();
-    let is_question = text.contains('?')
-        || low.starts_with("what ")
-        || low.starts_with("how ")
-        || low.starts_with("why ")
-        || low.starts_with("when ")
-        || low.starts_with("where ")
-        || low.starts_with("who ")
-        || low.starts_with("can you")
-        || low.starts_with("could you")
-        || low.starts_with("would you")
-        || low.starts_with("do you")
-        || low.starts_with("are you")
-        || low.starts_with("is there")
-        || low.starts_with("tell me")
-        || low.starts_with("explain")
-        || low.starts_with("describe")
-        || low.starts_with("write ")
-        || low.starts_with("write a ")
-        || low.starts_with("write an ")
-        || low.starts_with("create ")
-        || low.starts_with("create a ")
-        || low.starts_with("implement ")
-        || low.starts_with("show me")
-        || low.starts_with("give me")
-        || low.starts_with("walk me through")
-        || low.starts_with("ok, ")
-        || low.starts_with("okay, ");
-
-    if !is_question {
-        // Still show what we heard so user knows it's working
-        let _ = app_handle.emit(
-            "answer",
-            AnswerPayload {
-                question: text,
-                answer: "(Not detected as a question. Try asking with What, How, Why, or add a ?)"
-                    .to_string(),
-            },
-        );
-        return Ok(());
-    }
-
     let low = text.to_lowercase();
     let is_code = low.contains("write ") || low.contains("create ") || low.contains("implement ")
         || low.contains(" code") || low.contains("script") || low.starts_with("write ")
@@ -165,14 +122,16 @@ async fn transcribe_and_answer(
 Rules:
 - Infer every detail they want. Understand their tone and intent.
 - If CODE (write/create/implement): Best production code in a markdown code block, then "Key concepts the interviewer may ask about" with bullet points (design, complexity, edge cases).
-- Otherwise: Comprehensive answer, every relevant detail. Bullets OK if clearer."#,
+- Otherwise: Comprehensive answer, every relevant detail. Bullets OK if clearer.
+- Answer in the SAME language as the question. If the question is in Urdu or Roman Urdu, answer in Roman Urdu (Urdu in Latin script). If in English, answer in English. Always use Roman script so the candidate can read it aloud easily.
+- Write so the candidate can read it aloud naturally: conversational, like a real person speaking. Not robotic or scripted—so the interviewer never suspects anything."#,
         text
     );
 
     let chat_body = serde_json::json!({
         "model": "gpt-4o-mini",
         "messages": [
-            {"role": "system", "content": "Lightning-fast interview assistant. Be thorough: fetch every detail, read interviewer emotion (curiosity, skepticism, urgency). Anticipate follow-ups. For code: best quality + bullet-point headings for follow-up Q&A."},
+            {"role": "system", "content": "You help a candidate answer interview questions. Be thorough and anticipate follow-ups. For code: best quality + bullet-point headings for follow-up Q&A. Answer in the SAME language as the question: if the question is in Urdu or Roman Urdu, answer in Roman Urdu; if in English, answer in English. Always use Roman script (Latin alphabet). CRITICAL: Phrase every answer so the candidate can read it aloud naturally—conversational, like a real person speaking, not a script. The answer should sound like something they would say themselves so the interviewer does not suspect anything."},
             {"role": "user", "content": prompt}
         ],
         "max_tokens": if is_code { 1200 } else { 600 },
@@ -309,14 +268,13 @@ async fn transcribe_from_file(app_handle: tauri::AppHandle) -> Result<(), String
                 .part(
                     "file",
                     reqwest::multipart::Part::bytes(audio_bytes)
-                        .file_name(file_name)
-                        .mime_str(&mime)
-                        .map_err(|e| e.to_string())?,
+                .file_name(file_name)
+                .mime_str(&mime)
+                .map_err(|e| e.to_string())?,
                 )
                 .text("model", "whisper-1")
                 .text("response_format", "json")
-                .text("language", "en")
-                .text("prompt", "Interview question. Tell me about"),
+                .text("prompt", "Interview question. Roman Urdu, Urdu in Latin script: main, kya, kaise, kyoon, tum, hai, ho, mujhe, aap, yeh, woh, kya hai, bataiye, samjhaye."),
         )
         .send()
         .await
@@ -344,43 +302,6 @@ async fn transcribe_from_file(app_handle: tauri::AppHandle) -> Result<(), String
     }
     let _ = app_handle.emit("transcript", &text);
     let low = text.to_lowercase();
-    let is_question = text.contains('?')
-        || low.starts_with("what ")
-        || low.starts_with("how ")
-        || low.starts_with("why ")
-        || low.starts_with("when ")
-        || low.starts_with("where ")
-        || low.starts_with("who ")
-        || low.starts_with("can you")
-        || low.starts_with("could you")
-        || low.starts_with("would you")
-        || low.starts_with("do you")
-        || low.starts_with("are you")
-        || low.starts_with("is there")
-        || low.starts_with("tell me")
-        || low.starts_with("explain")
-        || low.starts_with("describe")
-        || low.starts_with("write ")
-        || low.starts_with("write a ")
-        || low.starts_with("write an ")
-        || low.starts_with("create ")
-        || low.starts_with("create a ")
-        || low.starts_with("implement ")
-        || low.starts_with("show me")
-        || low.starts_with("give me")
-        || low.starts_with("walk me through")
-        || low.starts_with("ok, ")
-        || low.starts_with("okay, ");
-    if !is_question {
-        let _ = app_handle.emit(
-            "answer",
-            AnswerPayload {
-                question: text,
-                answer: "(Not a question. Try What, How, Why, or ?)".to_string(),
-            },
-        );
-        return Ok(());
-    }
     let is_code = low.contains("write ") || low.contains("create ") || low.contains("implement ")
         || low.contains(" code") || low.contains("script") || low.starts_with("write ")
         || low.starts_with("create ") || low.starts_with("implement ");
@@ -390,13 +311,15 @@ async fn transcribe_from_file(app_handle: tauri::AppHandle) -> Result<(), String
 Rules:
 - Infer every detail they want. Understand their tone and intent.
 - If CODE (write/create/implement): Best production code in a markdown code block, then "Key concepts the interviewer may ask about" with bullet points (design, complexity, edge cases).
-- Otherwise: Comprehensive answer, every relevant detail. Bullets OK if clearer."#,
+- Otherwise: Comprehensive answer, every relevant detail. Bullets OK if clearer.
+- Answer in the SAME language as the question. If the question is in Urdu or Roman Urdu, answer in Roman Urdu (Urdu in Latin script). If in English, answer in English. Always use Roman script so the candidate can read it aloud easily.
+- Write so the candidate can read it aloud naturally: conversational, like a real person speaking. Not robotic—so the interviewer never suspects anything."#,
         text
     );
     let chat_body = serde_json::json!({
         "model": "gpt-4o-mini",
         "messages": [
-            {"role": "system", "content": "Lightning-fast interview assistant. Be thorough: fetch every detail, read interviewer emotion (curiosity, skepticism, urgency). Anticipate follow-ups. For code: best quality + bullet-point headings for follow-up Q&A."},
+            {"role": "system", "content": "You help a candidate answer interview questions. Be thorough and anticipate follow-ups. For code: best quality + bullet-point headings for follow-up Q&A. Answer in the SAME language as the question: if the question is in Urdu or Roman Urdu, answer in Roman Urdu; if in English, answer in English. Always use Roman script (Latin alphabet). CRITICAL: Phrase every answer so the candidate can read it aloud naturally—conversational, like a real person speaking, not a script. The answer should sound like something they would say themselves so the interviewer does not suspect anything."},
             {"role": "user", "content": prompt}
         ],
         "max_tokens": if is_code { 1200 } else { 600 },
@@ -456,43 +379,6 @@ async fn answer_from_transcript(
         .build()
         .map_err(|e| e.to_string())?;
     let low = text.to_lowercase();
-    let is_question = text.contains('?')
-        || low.starts_with("what ")
-        || low.starts_with("how ")
-        || low.starts_with("why ")
-        || low.starts_with("when ")
-        || low.starts_with("where ")
-        || low.starts_with("who ")
-        || low.starts_with("can you")
-        || low.starts_with("could you")
-        || low.starts_with("would you")
-        || low.starts_with("do you")
-        || low.starts_with("are you")
-        || low.starts_with("is there")
-        || low.starts_with("tell me")
-        || low.starts_with("explain")
-        || low.starts_with("describe")
-        || low.starts_with("write ")
-        || low.starts_with("write a ")
-        || low.starts_with("write an ")
-        || low.starts_with("create ")
-        || low.starts_with("create a ")
-        || low.starts_with("implement ")
-        || low.starts_with("show me")
-        || low.starts_with("give me")
-        || low.starts_with("walk me through")
-        || low.starts_with("ok, ")
-        || low.starts_with("okay, ");
-    if !is_question {
-        let _ = app_handle.emit(
-            "answer",
-            AnswerPayload {
-                question: text,
-                answer: "(Not detected as a question. Try What, How, Why, or add ?)".to_string(),
-            },
-        );
-        return Ok(());
-    }
 
     const DOC_MAX_CHARS: usize = 8000;
     let doc_trimmed = document_text
@@ -563,7 +449,11 @@ DEPTH & INTELLIGENCE:
 
 CODE QUESTIONS (write/create/implement): Provide the BEST possible production-quality code. Use a markdown code block with language. Then add a heading "Key concepts the interviewer may ask about" and bullet points for: design decisions, time/space complexity, edge cases, alternative approaches. This lets the candidate answer follow-ups easily.
 
-NON-CODE: Clear, comprehensive answer. Include every relevant detail. Can use bullets for clarity. Aim to be thorough but speakable aloud."#,
+NON-CODE: Clear, comprehensive answer. Include every relevant detail. Can use bullets for clarity. Aim to be thorough but speakable aloud.
+
+LANGUAGE: Answer in the SAME language as the question. If the question is in Urdu or Roman Urdu, answer in Roman Urdu (Urdu in Latin script). If in English, answer in English. Always use Roman script so the candidate can read it aloud easily.
+
+DELIVERY: Phrase every answer so the candidate can read it aloud naturally—conversational, like a real person speaking, not a script or a list. The answer should sound like something they would say themselves so the interviewer does not suspect anything."#,
         if document_instruction.is_empty() { String::new() } else { format!("\nREFERENCE DOCUMENT: {}\n", document_instruction) },
         memory_instruction
     );
@@ -580,7 +470,7 @@ NON-CODE: Clear, comprehensive answer. Include every relevant detail. Can use bu
             ));
         }
         parts.push(format!(
-            "Interviewer asked: \"{}\"\n\nAnswer comprehensively. Use any context above when relevant. Cover every aspect they might care about.",
+            "Interviewer asked: \"{}\"\n\nAnswer in the SAME language as the question (if Urdu/Roman Urdu, answer in Roman Urdu; if English, in English). Use any context above when relevant. Cover every aspect they might care about. Phrase the answer so the candidate can read it aloud naturally—conversational, like a real person speaking, so the interviewer does not suspect anything.",
             text
         ));
         parts.join("\n\n")
@@ -679,46 +569,82 @@ NON-CODE: Clear, comprehensive answer. Include every relevant detail. Can use bu
     Ok(())
 }
 
-// ---- Local auth & usage (no Supabase) ----
+// ---- Auth & usage: local DB or cloud when cloud_base_url is set ----
+
+fn cloud_base() -> Option<String> {
+    db::get_config("cloud_base_url").filter(|s| !s.trim().is_empty())
+}
 
 #[tauri::command]
 fn auth_login(email: String, password: String) -> Result<(String, db::User), String> {
-    db::auth_login(&email, &password)
+    if let Some(ref base) = cloud_base() {
+        cloud::auth_login(base, &email, &password)
+    } else {
+        db::auth_login(&email, &password)
+    }
 }
 
 #[tauri::command]
 fn auth_signup(email: String, password: String) -> Result<(String, db::User), String> {
-    db::auth_signup(&email, &password)
+    if let Some(ref base) = cloud_base() {
+        cloud::auth_signup(base, &email, &password)
+    } else {
+        db::auth_signup(&email, &password)
+    }
 }
 
 #[tauri::command]
 fn auth_logout(token: String) -> Result<(), String> {
-    db::auth_logout(&token)
+    if let Some(ref base) = cloud_base() {
+        cloud::auth_logout(base, &token)
+    } else {
+        db::auth_logout(&token)
+    }
 }
 
 #[tauri::command]
 fn auth_session(token: String) -> Result<db::User, String> {
-    db::auth_validate_token(&token)
+    if let Some(ref base) = cloud_base() {
+        cloud::auth_session(base, &token)
+    } else {
+        db::auth_validate_token(&token)
+    }
 }
 
 #[tauri::command]
 fn get_usage(token: String) -> Result<db::UserUsageRow, String> {
-    db::get_usage(&token)
+    if let Some(ref base) = cloud_base() {
+        cloud::get_usage(base, &token)
+    } else {
+        db::get_usage(&token)
+    }
 }
 
 #[tauri::command]
 fn record_session_cmd(token: String, minutes: f64) -> Result<db::UserUsageRow, String> {
-    db::record_session(&token, minutes)
+    if let Some(ref base) = cloud_base() {
+        cloud::record_session(base, &token, minutes)
+    } else {
+        db::record_session(&token, minutes)
+    }
 }
 
 #[tauri::command]
 fn apply_coupon(token: String, code: String) -> Result<db::UserUsageRow, String> {
-    db::apply_coupon(&token, &code)
+    if let Some(ref base) = cloud_base() {
+        cloud::apply_coupon(base, &token, &code)
+    } else {
+        db::apply_coupon(&token, &code)
+    }
 }
 
 #[tauri::command]
 fn admin_list_users(token: String) -> Result<Vec<db::UserWithUsage>, String> {
-    db::admin_list_users(&token)
+    if let Some(ref base) = cloud_base() {
+        cloud::admin_list_users(base, &token)
+    } else {
+        db::admin_list_users(&token)
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -730,7 +656,11 @@ struct AdminRemoveSubscriptionArgs {
 
 #[tauri::command]
 fn admin_remove_subscription(args: AdminRemoveSubscriptionArgs) -> Result<(), String> {
-    db::admin_remove_subscription(&args.token, &args.user_id)
+    if let Some(ref base) = cloud_base() {
+        cloud::admin_remove_subscription(base, &args.token, &args.user_id)
+    } else {
+        db::admin_remove_subscription(&args.token, &args.user_id)
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -744,17 +674,29 @@ struct AdminAddCouponArgs {
 
 #[tauri::command]
 fn admin_add_coupon(args: AdminAddCouponArgs) -> Result<(), String> {
-    db::admin_add_coupon(&args.token, &args.code, &args.plan, args.expires_in_days)
+    if let Some(ref base) = cloud_base() {
+        cloud::admin_add_coupon(base, &args.token, &args.code, &args.plan, args.expires_in_days)
+    } else {
+        db::admin_add_coupon(&args.token, &args.code, &args.plan, args.expires_in_days)
+    }
 }
 
 #[tauri::command]
 fn admin_remove_coupon(token: String, code: String) -> Result<(), String> {
-    db::admin_remove_coupon(&token, &code)
+    if let Some(ref base) = cloud_base() {
+        cloud::admin_remove_coupon(base, &token, &code)
+    } else {
+        db::admin_remove_coupon(&token, &code)
+    }
 }
 
 #[tauri::command]
 fn admin_list_coupons(token: String) -> Result<Vec<db::CouponRow>, String> {
-    db::admin_list_coupons(&token)
+    if let Some(ref base) = cloud_base() {
+        cloud::admin_list_coupons(base, &token)
+    } else {
+        db::admin_list_coupons(&token)
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -766,7 +708,30 @@ struct AdminSetOpenaiKeyArgs {
 
 #[tauri::command]
 fn admin_set_openai_key(args: AdminSetOpenaiKeyArgs) -> Result<(), String> {
-    db::admin_set_openai_key(&args.token, &args.api_key)
+    if let Some(ref base) = cloud_base() {
+        cloud::admin_set_openai_key(base, &args.token, &args.api_key)
+    } else {
+        db::admin_set_openai_key(&args.token, &args.api_key)
+    }
+}
+
+#[tauri::command]
+fn get_cloud_url() -> Option<String> {
+    db::get_config("cloud_base_url").filter(|s| !s.trim().is_empty())
+}
+
+#[tauri::command]
+fn set_cloud_url(base_url: String) -> Result<(), String> {
+    let url = base_url.trim();
+    if url.is_empty() {
+        db::set_config("cloud_base_url", "").map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+    let url = url.trim_end_matches('/');
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        return Err("URL must start with http:// or https://".to_string());
+    }
+    db::set_config("cloud_base_url", url)
 }
 
 pub fn run() {
@@ -796,6 +761,8 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .invoke_handler(tauri::generate_handler![
             transcribe_and_answer,
             transcribe_from_file,
@@ -815,6 +782,8 @@ pub fn run() {
             admin_remove_coupon,
             admin_list_coupons,
             admin_set_openai_key,
+            get_cloud_url,
+            set_cloud_url,
         ])
         .run(tauri::generate_context!())
         .expect("error while running AI Assistant");

@@ -16,6 +16,8 @@
     "@tauri-apps/api": "^2.10.1",
     "@tauri-apps/plugin-fs": "^2.4.5",
     "@tauri-apps/plugin-global-shortcut": "^2.3.1",
+    "@tauri-apps/plugin-process": "^2.3.1",
+    "@tauri-apps/plugin-updater": "^2.10.0",
     "mammoth": "^1.11.0",
     "pdfjs-dist": "^5.4.624",
     "react": "^18.2.0",

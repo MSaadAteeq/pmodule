@@ -26,6 +26,8 @@ pub struct UserUsageRow {
     pub plan: String,
     pub sessions_remaining: i64,
     pub plan_expires_at: Option<String>,
+    #[serde(default)]
+    pub last_coupon_code: Option<String>,
     pub updated_at: String,
 }
 
@@ -266,9 +268,9 @@ pub fn auth_logout(token: &str) -> Result<(), String> {
 pub fn get_usage(token: &str) -> Result<UserUsageRow, String> {
     let user = auth_validate_token(token)?;
     with_db(|conn| {
-        let row = conn
+            let row = conn
             .query_row(
-                "SELECT id, user_id, minutes_used, sessions_used, plan, sessions_remaining, plan_expires_at, updated_at FROM user_usage WHERE user_id = ?1",
+                "SELECT id, user_id, minutes_used, sessions_used, plan, sessions_remaining, plan_expires_at, last_coupon_code, updated_at FROM user_usage WHERE user_id = ?1",
                 [&user.id],
                 |r| {
                     Ok(UserUsageRow {
@@ -279,7 +281,8 @@ pub fn get_usage(token: &str) -> Result<UserUsageRow, String> {
                         plan: r.get(4)?,
                         sessions_remaining: r.get(5)?,
                         plan_expires_at: r.get(6)?,
-                        updated_at: r.get(7)?,
+                        last_coupon_code: r.get(7)?,
+                        updated_at: r.get(8)?,
                     })
                 },
             )
@@ -293,7 +296,7 @@ pub fn record_session(token: &str, minutes: f64) -> Result<UserUsageRow, String>
     with_db(|conn| {
         let row: UserUsageRow = conn
             .query_row(
-                "SELECT id, user_id, minutes_used, sessions_used, plan, sessions_remaining, plan_expires_at, updated_at FROM user_usage WHERE user_id = ?1",
+                "SELECT id, user_id, minutes_used, sessions_used, plan, sessions_remaining, plan_expires_at, last_coupon_code, updated_at FROM user_usage WHERE user_id = ?1",
                 [&user.id],
                 |r| {
                     Ok(UserUsageRow {
@@ -304,7 +307,8 @@ pub fn record_session(token: &str, minutes: f64) -> Result<UserUsageRow, String>
                         plan: r.get(4)?,
                         sessions_remaining: r.get(5)?,
                         plan_expires_at: r.get(6)?,
-                        updated_at: r.get(7)?,
+                        last_coupon_code: r.get(7)?,
+                        updated_at: r.get(8)?,
                     })
                 },
             )
@@ -393,7 +397,7 @@ pub fn apply_coupon(token: &str, code: &str) -> Result<UserUsageRow, String> {
 
         let row = conn
             .query_row(
-                "SELECT id, user_id, minutes_used, sessions_used, plan, sessions_remaining, plan_expires_at, updated_at FROM user_usage WHERE user_id = ?1",
+                "SELECT id, user_id, minutes_used, sessions_used, plan, sessions_remaining, plan_expires_at, last_coupon_code, updated_at FROM user_usage WHERE user_id = ?1",
                 [&user.id],
                 |r| {
                     Ok(UserUsageRow {
@@ -404,7 +408,8 @@ pub fn apply_coupon(token: &str, code: &str) -> Result<UserUsageRow, String> {
                         plan: r.get(4)?,
                         sessions_remaining: r.get(5)?,
                         plan_expires_at: r.get(6)?,
-                        updated_at: r.get(7)?,
+                        last_coupon_code: r.get(7)?,
+                        updated_at: r.get(8)?,
                     })
                 },
             )
