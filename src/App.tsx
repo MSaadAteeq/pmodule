@@ -10,7 +10,6 @@ import { tauriInvoke, isTauri } from "./lib/tauri";
 import { AuthScreen } from "./components/AuthScreen";
 import { UpgradeModal } from "./components/UpgradeModal";
 import { AdminPanel } from "./components/AdminPanel";
-import { UpdateModal } from "./components/UpdateModal";
 import { CloudModal } from "./components/CloudModal";
 import "./App.css";
 
@@ -50,9 +49,8 @@ function App() {
   const stopRequestedRef = useRef<boolean>(false);
   const fallbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sessionStartTimeRef = useRef<number>(0);
-  const [showTitleBarControls, setShowTitleBarControls] = useState(() => isTauri());
+  const showTitleBarControls = isTauri();
   const [showAssistantScreen, setShowAssistantScreen] = useState(false);
-  const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [showCloudModal, setShowCloudModal] = useState(false);
 
   // Tauri window: skip taskbar, always on top
@@ -616,14 +614,9 @@ function App() {
             Upgrade
           </button>
           {isTauri() && (
-            <>
-              <button type="button" className="btn btn-ghost" onClick={() => setShowCloudModal(true)} title="Cloud sync – use same account on all devices">
-                Cloud
-              </button>
-              <button type="button" className="btn btn-ghost" onClick={() => setShowUpdateModal(true)} title="Check for app updates">
-                Update
-              </button>
-            </>
+            <button type="button" className="btn btn-ghost" onClick={() => setShowCloudModal(true)} title="Cloud sync – use same account on all devices">
+              Cloud
+            </button>
           )}
           {session?.user?.role === "superadmin" && (
             <button type="button" className="btn btn-ghost" onClick={() => setShowAdmin(true)} title="Admin">
@@ -652,7 +645,6 @@ function App() {
 
       {showUpgrade && <UpgradeModal onClose={() => setShowUpgrade(false)} onApplied={() => setShowUpgrade(false)} onUsageUpdate={setUsage} />}
       {showAdmin && <AdminPanel onClose={() => setShowAdmin(false)} />}
-      {showUpdateModal && <UpdateModal onClose={() => setShowUpdateModal(false)} />}
       {showCloudModal && <CloudModal onClose={() => setShowCloudModal(false)} />}
 
       {isListeningLayout ? (

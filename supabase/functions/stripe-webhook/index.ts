@@ -1,11 +1,11 @@
 // Stripe webhook: grant sessions or unlimited when payment succeeds.
 // Deploy: supabase functions deploy stripe-webhook --env-file .env
 // Set STRIPE_WEBHOOK_SECRET and SUPABASE_SERVICE_ROLE_KEY in Supabase secrets.
-
+// @ts-nocheck
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const stripe = await import("https://esm.sh/stripe@14.21.0?target=deno");
+const Stripe = (await import("https://esm.sh/stripe@14.21.0?target=deno")).default;
 const STRIPE_SECRET = Deno.env.get("STRIPE_SECRET_KEY");
 const WEBHOOK_SECRET = Deno.env.get("STRIPE_WEBHOOK_SECRET");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -19,8 +19,8 @@ serve(async (req) => {
 
   let event: { type: string; data: { object: { client_reference_id?: string; customer_email?: string; metadata?: Record<string, string> } } };
   try {
-    const s = stripe.default(STRIPE_SECRET);
-    event = await s.webhooks.constructEventAsync(body, sig, WEBHOOK_SECRET);
+    const stripe = new Stripe(STRIPE_SECRET);
+    event = await stripe.webhooks.constructEventAsync(body, sig, WEBHOOK_SECRET);
   } catch {
     return new Response("Invalid signature", { status: 400 });
   }

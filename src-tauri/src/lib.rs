@@ -378,7 +378,6 @@ async fn answer_from_transcript(
         .timeout(std::time::Duration::from_secs(30))
         .build()
         .map_err(|e| e.to_string())?;
-    let low = text.to_lowercase();
 
     const DOC_MAX_CHARS: usize = 8000;
     let doc_trimmed = document_text
@@ -761,8 +760,6 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_process::init())
         .invoke_handler(tauri::generate_handler![
             transcribe_and_answer,
             transcribe_from_file,

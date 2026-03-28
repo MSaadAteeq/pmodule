@@ -1,11 +1,12 @@
 // Create Stripe Checkout Session for AI Assistant plans.
 // Call from app with Authorization: Bearer <user_jwt>. Body: { plan: 'pack_3' | 'pack_10' | 'unlimited' }
 // Returns: { url: string }
-
+// This file runs on Supabase Edge (Deno). Use Deno extension or supabase functions serve to type-check.
+// @ts-nocheck
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const stripe = await import("https://esm.sh/stripe@14.21.0?target=deno");
+const Stripe = (await import("https://esm.sh/stripe@14.21.0?target=deno")).default;
 const STRIPE_SECRET = Deno.env.get("STRIPE_SECRET_KEY");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_ANON = Deno.env.get("SUPABASE_ANON_KEY")!;
@@ -22,11 +23,15 @@ serve(async (req) => {
   if (!auth?.startsWith("Bearer ")) return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
   if (!STRIPE_SECRET) return new Response(JSON.stringify({ error: "Server config error" }), { status: 500 });
 
+  const token = auth.replace(/^Bearer\s+/i, "");
   const supabase = createClient(SUPABASE_URL, SUPABASE_ANON, {
     global: { headers: { Authorization: auth } },
   });
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user?.id) return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser(token);
+  if (userError || !user?.id) return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
 
   let body: { plan?: string };
   try {
@@ -40,19 +45,20 @@ serve(async (req) => {
   }
 
   const { priceId, mode } = PRICES[plan];
-  const s = stripe.default(STRIPE_SECRET);
+  const stripe = new Stripe(STRIPE_SECRET);
   const origin = req.headers.get("origin") || "https://app.example.com";
-  const session = await s.checkout.sessions.create({
+  const session = await stripe.checkout.sessions.create({
     mode,
     line_items: [{ price: priceId, quantity: 1 }],
     success_url: `${origin}/?success=true`,
     cancel_url: `${origin}/?cancel=true`,
     client_reference_id: user.id,
     metadata: { plan },
-    subscription_data: mode === "subscription" ? {} : undefined,
+    ...(mode === "subscription" ? { subscription_data: {} } : {}),
   });
 
-  return new Response(JSON.stringify({ url: session.url }), {
+  const url = session.url ?? null;
+  return new Response(JSON.stringify({ url }), {
     headers: { "Content-Type": "application/json" },
   });
 });
