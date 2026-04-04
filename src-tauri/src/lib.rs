@@ -3,8 +3,10 @@
     windows_subsystem = "windows"
 )]
 
+mod assessment;
 mod cloud;
 mod db;
+mod screen_capture;
 
 use base64::{engine::general_purpose::STANDARD, Engine};
 use futures_util::StreamExt;
@@ -12,7 +14,7 @@ use reqwest::Client;
 use serde::Deserialize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{Emitter, Manager};
-use tauri_plugin_global_shortcut::{ShortcutEvent, ShortcutState};
+use tauri_plugin_global_shortcut::{Code, ShortcutEvent, ShortcutState};
 
 static LISTENING: AtomicBool = AtomicBool::new(false);
 
@@ -188,6 +190,64 @@ fn set_listening(listening: bool) {
 #[tauri::command]
 fn is_listening() -> bool {
     LISTENING.load(Ordering::SeqCst)
+}
+
+/// PNG (standard base64, no data-URL prefix). Optional region in **physical** pixels relative to the primary monitor.
+#[tauri::command]
+fn capture_screen_png_base64(
+    region: Option<screen_capture::CaptureRegion>,
+) -> Result<String, String> {
+    screen_capture::capture_primary_display_png_base64(region)
+}
+
+#[tauri::command]
+async fn assessment_analyze_image(
+    image_base64_png: String,
+    interview_context: Option<String>,
+) -> Result<assessment::AssessmentResult, String> {
+    let key = db::get_openai_api_key()?;
+    assessment::analyze_image_base64(&key, &image_base64_png, interview_context.as_deref()).await
+}
+
+#[tauri::command]
+async fn assessment_analyze_text(
+    text: String,
+    interview_context: Option<String>,
+) -> Result<assessment::AssessmentResult, String> {
+    let key = db::get_openai_api_key()?;
+    assessment::analyze_question_text(&key, &text, interview_context.as_deref()).await
+}
+
+fn run_screen_assessment_hotkey(app: tauri::AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        let _ = app.emit("status", "Capturing screen…");
+        let img = match screen_capture::capture_primary_display_png_base64(None) {
+            Ok(s) => s,
+            Err(e) => {
+                let _ = app.emit("backend_error", e);
+                let _ = app.emit("status", "");
+                return;
+            }
+        };
+        let key = match db::get_openai_api_key() {
+            Ok(k) => k,
+            Err(e) => {
+                let _ = app.emit("backend_error", e);
+                let _ = app.emit("status", "");
+                return;
+            }
+        };
+        let _ = app.emit("status", "Analyzing (vision + LLM)…");
+        match assessment::analyze_image_base64(&key, &img, None).await {
+            Ok(r) => {
+                let _ = app.emit("screen_assessment_result", &r);
+            }
+            Err(e) => {
+                let _ = app.emit("backend_error", e);
+            }
+        }
+        let _ = app.emit("status", "");
+    });
 }
 
 fn convert_webm_to_wav(webm_path: &std::path::Path) -> Result<Vec<u8>, String> {
@@ -744,9 +804,9 @@ pub fn run() {
         })
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
-                .with_shortcuts(["Control+Alt+KeyA"])
+                .with_shortcuts(["Control+Alt+KeyA", "Control+Alt+KeyS"])
                 .expect("failed to register shortcut")
-                .with_handler(|app, _shortcut, event: ShortcutEvent| {
+                .with_handler(|app, shortcut, event: ShortcutEvent| {
                     if event.state == ShortcutState::Pressed {
                         if let Some(w) = app.get_webview_window("main") {
                             let _ = w.set_ignore_cursor_events(false);
@@ -754,6 +814,9 @@ pub fn run() {
                             let _ = w.unminimize();
                             let _ = w.set_focus();
                             let _ = w.emit("parakeet_activate", ());
+                        }
+                        if shortcut.key == Code::KeyS {
+                            run_screen_assessment_hotkey(app.clone());
                         }
                     }
                 })
@@ -781,6 +844,9 @@ pub fn run() {
             admin_set_openai_key,
             get_cloud_url,
             set_cloud_url,
+            capture_screen_png_base64,
+            assessment_analyze_image,
+            assessment_analyze_text,
         ])
         .run(tauri::generate_context!())
         .expect("error while running AI Assistant");

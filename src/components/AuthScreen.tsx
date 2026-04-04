@@ -46,8 +46,8 @@ export function AuthScreen({
     return (
       <div className="auth-screen">
         <div className="auth-card">
-          <h2>AI Assistant</h2>
-          <p className="auth-message">
+        <h2>ParakeetAI</h2>
+        <p className="auth-message">
             Open the desktop app to sign in. Run: <code>npm run tauri dev</code>
           </p>
         </div>
@@ -58,7 +58,7 @@ export function AuthScreen({
   return (
     <div className="auth-screen">
       <div className="auth-card">
-        <h2>AI Assistant</h2>
+        <h2>ParakeetAI</h2>
         <p className="auth-subtitle">Sign in to get 30 minutes free, then use a coupon to upgrade.</p>
         <form onSubmit={handleSubmit} className="auth-form">
           <input
