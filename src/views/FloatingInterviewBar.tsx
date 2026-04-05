@@ -4,6 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { buildAssessmentCopyText } from "../components/uiAnswerPanel";
 import type { ParakeetMenuItem } from "../components/ParakeetMenuDropdown";
 import { ParakeetMenuDropdown } from "../components/ParakeetMenuDropdown";
+import { Tooltip } from "../components/Tooltip";
 import { isTauri } from "../lib/tauri";
 import type { AssessmentResult } from "../assessment/types";
 
@@ -38,7 +39,6 @@ export type FloatingInterviewBarProps = {
   transcriptBufferRef: MutableRefObject<string>;
   screenAssessmentHotkey: AssessmentResult | null;
   setScreenAssessmentHotkey: (v: AssessmentResult | null) => void;
-  conversationHistory: { question: string; answer: string }[];
   typeQuestionInput: string;
   setTypeQuestionInput: (v: string) => void;
   submitTranscript: (t: string) => void | Promise<void>;
@@ -77,7 +77,6 @@ export function FloatingInterviewBar(props: FloatingInterviewBarProps) {
     transcriptBufferRef,
     screenAssessmentHotkey,
     setScreenAssessmentHotkey,
-    conversationHistory,
     typeQuestionInput,
     setTypeQuestionInput,
     submitTranscript,
@@ -88,98 +87,101 @@ export function FloatingInterviewBar(props: FloatingInterviewBarProps) {
     <main className="main main-floating-nav">
       <div className="fn-stack">
         <div className="fn-toolbar fn-pill" data-tauri-drag-region>
-          <button
-            type="button"
-            className="fn-soundwave"
-            title="Show or hide transcription strip"
-            aria-label="Toggle transcription"
-            aria-pressed={floatingTranscriptOpen}
-            onClick={() => setFloatingTranscriptOpen((v) => !v)}
-          >
-            <span className="fn-soundwave-icon" aria-hidden />
-          </button>
-          <button
-            type="button"
-            className="fn-icon-btn fn-bell-wrap"
-            title="Open chat"
-            aria-label="Notifications and chat"
-            onClick={() => setFloatingChatOpen((v) => !v)}
-          >
-            🔔
-            {(!!suggestion || memorySavedMessage) && <span className="fn-bell-dot" aria-hidden />}
-          </button>
-          <button
-            type="button"
-            className={`fn-icon-btn ${isListeningActive ? "fn-mic-on" : ""}`}
-            title={isListeningActive ? "Stop listening" : "Start listening"}
-            aria-label={isListeningActive ? "Stop listening" : "Start listening"}
-            onClick={() => (isListeningActive ? void stopPractice() : void startPractice())}
-          >
-            🎤
-          </button>
-          <button
-            type="button"
-            className="fn-text-btn"
-            title="Generate AI answer from heard or typed question"
-            onClick={() => void floatingAiAnswer()}
-          >
-            ✨ AI Answer
-          </button>
-          <button
-            type="button"
-            className="fn-text-btn"
-            disabled={floatingAnalyzeBusy}
-            title="Capture screen and analyze (same as Ctrl+Alt+S)"
-            onClick={() => void floatingAnalyzeScreen()}
-          >
-            {floatingAnalyzeBusy ? "…" : "🖥 Analyze Screen"}
-          </button>
-          <button
-            type="button"
-            className="fn-text-btn fn-chat-btn"
-            title="Chat and history"
-            onClick={() => setFloatingChatOpen((v) => !v)}
-          >
-            Chat
-          </button>
-          <span className="fn-timer" title="Session timer">
-            ⏱ {sessionStartTimeRef.current > 0 && isListeningActive ? formatMmSs(sessionStartTimeRef.current) : "0:00"}
-          </span>
-          <div id="pa-menu-anchor-float" className="fn-menu-anchor">
+          <Tooltip label="Show or hide transcription strip">
             <button
               type="button"
-              className="fn-icon-btn"
-              aria-label="Menu"
-              title="Menu"
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowPaMenu((v) => !v);
-              }}
+              className="fn-soundwave"
+              aria-label="Toggle transcription"
+              aria-pressed={floatingTranscriptOpen}
+              onClick={() => setFloatingTranscriptOpen((v) => !v)}
             >
-              ⋮
+              <span className="fn-soundwave-icon" aria-hidden />
             </button>
+          </Tooltip>
+          <Tooltip label="Open chat">
+            <button
+              type="button"
+              className="fn-icon-btn fn-bell-wrap"
+              aria-label="Notifications and chat"
+              onClick={() => setFloatingChatOpen((v) => !v)}
+            >
+              🔔
+              {(!!suggestion || memorySavedMessage) && <span className="fn-bell-dot" aria-hidden />}
+            </button>
+          </Tooltip>
+          <Tooltip label={isListeningActive ? "Stop listening" : "Start listening"}>
+            <button
+              type="button"
+              className={`fn-icon-btn ${isListeningActive ? "fn-mic-on" : ""}`}
+              aria-label={isListeningActive ? "Stop listening" : "Start listening"}
+              onClick={() => (isListeningActive ? void stopPractice() : void startPractice())}
+            >
+              🎤
+            </button>
+          </Tooltip>
+          <Tooltip label="Generate AI answer from heard or typed question">
+            <button type="button" className="fn-text-btn" onClick={() => void floatingAiAnswer()}>
+              ✨ AI Answer
+            </button>
+          </Tooltip>
+          <Tooltip label="Capture screen and analyze (same as Ctrl+Alt+S)">
+            <button
+              type="button"
+              className="fn-text-btn"
+              disabled={floatingAnalyzeBusy}
+              onClick={() => void floatingAnalyzeScreen()}
+            >
+              {floatingAnalyzeBusy ? "…" : "🖥 Analyze Screen"}
+            </button>
+          </Tooltip>
+          <Tooltip label="Chat and history">
+            <button type="button" className="fn-text-btn fn-chat-btn" onClick={() => setFloatingChatOpen((v) => !v)}>
+              Chat
+            </button>
+          </Tooltip>
+          <Tooltip label="Session timer">
+            <span className="fn-timer">
+              ⏱ {sessionStartTimeRef.current > 0 && isListeningActive ? formatMmSs(sessionStartTimeRef.current) : "0:00"}
+            </span>
+          </Tooltip>
+          <div id="pa-menu-anchor-float" className="fn-menu-anchor">
+            <Tooltip label="Menu">
+              <button
+                type="button"
+                className="fn-icon-btn"
+                aria-label="Menu"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowPaMenu((v) => !v);
+                }}
+              >
+                ⋮
+              </button>
+            </Tooltip>
             <ParakeetMenuDropdown open={showPaMenu} items={menuItems} menuClassName="fn-menu-dropdown" />
           </div>
           {isTauri() && (
+            <Tooltip label="Place window">
+              <button
+                type="button"
+                className="fn-icon-btn"
+                aria-label="Move window"
+                onClick={() => setShowPositionPicker(true)}
+              >
+                ⤢
+              </button>
+            </Tooltip>
+          )}
+          <Tooltip label="Minimize">
             <button
               type="button"
               className="fn-icon-btn"
-              title="Place window"
-              aria-label="Move window"
-              onClick={() => setShowPositionPicker(true)}
+              aria-label="Minimize"
+              onClick={() => getCurrentWindow().minimize()}
             >
-              ⤢
+              ˄
             </button>
-          )}
-          <button
-            type="button"
-            className="fn-icon-btn"
-            title="Minimize"
-            aria-label="Minimize"
-            onClick={() => getCurrentWindow().minimize()}
-          >
-            ˄
-          </button>
+          </Tooltip>
         </div>
 
         {floatingTranscriptOpen && (
@@ -195,40 +197,43 @@ export function FloatingInterviewBar(props: FloatingInterviewBarProps) {
                       "Click the soundwave icon to show or hide transcription of what ParakeetAI is hearing."}
             </p>
             <div className="fn-transcript-actions">
-              <button
-                type="button"
-                className="fn-icon-btn"
-                title="Clear"
-                aria-label="Clear transcript"
-                onClick={() => {
-                  setQuestion("");
-                  setSuggestion("");
-                  setError("");
-                  setStatus("");
-                  transcriptBufferRef.current = "";
-                  setScreenAssessmentHotkey(null);
-                }}
-              >
-                🗑
-              </button>
-              <button
-                type="button"
-                className="fn-icon-btn"
-                title={floatingTranscriptExpanded ? "Collapse text" : "Expand text"}
-                aria-label="Toggle transcript height"
-                onClick={() => setFloatingTranscriptExpanded((e) => !e)}
-              >
-                ˅
-              </button>
-              <button
-                type="button"
-                className="fn-icon-btn"
-                title="Exit compact bar — open full assistant"
-                aria-label="Close compact bar"
-                onClick={() => exitFloatingBarToFullAssistant()}
-              >
-                ✕
-              </button>
+              <Tooltip label="Clear">
+                <button
+                  type="button"
+                  className="fn-icon-btn"
+                  aria-label="Clear transcript"
+                  onClick={() => {
+                    setQuestion("");
+                    setSuggestion("");
+                    setError("");
+                    setStatus("");
+                    transcriptBufferRef.current = "";
+                    setScreenAssessmentHotkey(null);
+                  }}
+                >
+                  🗑
+                </button>
+              </Tooltip>
+              <Tooltip label={floatingTranscriptExpanded ? "Collapse text" : "Expand text"}>
+                <button
+                  type="button"
+                  className="fn-icon-btn"
+                  aria-label="Toggle transcript height"
+                  onClick={() => setFloatingTranscriptExpanded((e) => !e)}
+                >
+                  ˅
+                </button>
+              </Tooltip>
+              <Tooltip label="Exit compact bar — open full assistant">
+                <button
+                  type="button"
+                  className="fn-icon-btn"
+                  aria-label="Close compact bar"
+                  onClick={() => exitFloatingBarToFullAssistant()}
+                >
+                  ✕
+                </button>
+              </Tooltip>
             </div>
           </div>
         )}
@@ -263,13 +268,10 @@ export function FloatingInterviewBar(props: FloatingInterviewBarProps) {
 
         {floatingChatOpen && (
           <div className="fn-chat fn-pill">
-            <div className="fn-chat-scroll">
-              {[...conversationHistory].reverse().map((qa, i) => (
-                <div key={`${qa.question.slice(0, 24)}-${i}`} className="fn-chat-item">
-                  <div className="fn-chat-q">{qa.question}</div>
-                  <div className="fn-chat-a">{qa.answer.length > 400 ? `${qa.answer.slice(0, 400)}…` : qa.answer}</div>
-                </div>
-              ))}
+            <div className="fn-chat-scroll scrollbar-none">
+              <p className="fn-chat-hint">
+                Showing this question only. Your last answer stays in memory for follow-ups like &quot;explain that&quot;.
+              </p>
               {question ? (
                 <div className="fn-chat-item fn-chat-current">
                   <div className="fn-chat-label">Current</div>

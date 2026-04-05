@@ -10,6 +10,57 @@
   color: var(--text-primary);
 }
 
+/* Scrollable areas without visible scrollbar */
+.scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.app.scrollbar-none {
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.pa-hints-compact .privacy-badge {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-xs);
+}
+
+.pa-advanced {
+  margin-top: var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-raised);
+}
+.pa-advanced-summary {
+  cursor: default;
+  font-weight: var(--font-semibold);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  list-style: none;
+}
+.pa-advanced-summary::-webkit-details-marker {
+  display: none;
+}
+.pa-advanced-body {
+  margin-top: var(--space-3);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.fn-chat-hint {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  margin: 0 0 var(--space-2);
+  line-height: 1.4;
+}
+
 .app button,
 .app label.btn,
 .app label.screen-share-toggle,
@@ -234,7 +285,8 @@
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-2xl);
   box-shadow: var(--shadow-md);
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: visible;
 }
 
 .pa-tabs {
@@ -1106,7 +1158,8 @@
   max-width: none;
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  min-height: 0;
+  flex: 1 1 auto;
 }
 
 .listening-bar {
@@ -1185,14 +1238,14 @@
 }
 
 .listening-center {
-  flex: 1;
+  flex: 0 1 auto;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
   padding: var(--space-4) var(--space-6);
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
   background: var(--bg-base);
 }
 
@@ -1210,7 +1263,7 @@
 }
 
 .center-answer-box {
-  flex: 1;
+  flex: 0 1 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -1228,11 +1281,10 @@
 }
 
 .answer-content-visible {
-  flex: 1;
+  flex: 0 1 auto;
   min-height: 0;
-  max-height: 70vh;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
+  max-height: none;
+  overflow: visible;
   font-size: 1.05rem;
   line-height: var(--leading-relaxed);
   color: var(--text-primary);
@@ -1520,6 +1572,17 @@ body.parakeet-click-through {
   box-shadow: none;
 }
 
+/* Native title tooltips clip in transparent WebView; portal tooltips still benefit from no overflow clip. */
+.app.app-floating-bar.scrollbar-none {
+  overflow: visible;
+}
+
+/* Beat `.main:not(.main-listening) { flex: 1 }` so the bar sizes to content, not a collapsed flex slot. */
+.app-floating-bar > .main.main-floating-nav {
+  flex: 0 1 auto;
+  min-height: 0;
+}
+
 .main.main-floating-nav {
   background: transparent !important;
   box-shadow: none;
@@ -1790,13 +1853,13 @@ body.parakeet-click-through {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  max-height: 42vh;
+  /* Height follows markdown answer; Tauri window resizes to .fn-stack (capped in JS). */
+  flex: 0 0 auto;
 }
 
 .fn-chat-scroll {
-  overflow-y: auto;
-  flex: 1;
-  min-height: 0;
+  overflow-y: visible;
+  flex: 0 1 auto;
   display: flex;
   flex-direction: column;
   gap: var(--space-3);

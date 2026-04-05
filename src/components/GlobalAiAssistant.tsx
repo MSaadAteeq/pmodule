@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { Tooltip } from "./Tooltip";
 import "./GlobalAiAssistant.css";
 
 export type GlobalAiAssistantProps = {
@@ -127,18 +128,19 @@ export function GlobalAiAssistant({
       </aside>
 
       {showFab && (
-        <button
-          type="button"
-          className="gai-fab"
-          onClick={() => onOpenChange(!open)}
-          aria-expanded={open}
-          aria-label={open ? "Close AI assistant" : "Open AI assistant"}
-          title="AI Assistant"
-        >
-          <span className="gai-fab-icon" aria-hidden>
-            ✨
-          </span>
-        </button>
+        <Tooltip label="AI Assistant">
+          <button
+            type="button"
+            className="gai-fab"
+            onClick={() => onOpenChange(!open)}
+            aria-expanded={open}
+            aria-label={open ? "Close AI assistant" : "Open AI assistant"}
+          >
+            <span className="gai-fab-icon" aria-hidden>
+              ✨
+            </span>
+          </button>
+        </Tooltip>
       )}
     </>
   );

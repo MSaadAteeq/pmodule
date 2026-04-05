@@ -1,12 +1,24 @@
 import { useState, useRef, useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { getCurrentWindow, LogicalPosition, LogicalSize, primaryMonitor } from "@tauri-apps/api/window";
+import {
+  currentMonitor,
+  getCurrentWindow,
+  LogicalPosition,
+  LogicalSize,
+  primaryMonitor,
+} from "@tauri-apps/api/window";
 import ReactMarkdown from "react-markdown";
 import { extractTextFromFile } from "./documentParser";
 import { canStartSession, formatUsage, type UserUsage } from "./lib/supabase";
 import { getStoredToken, clearStoredToken } from "./lib/auth";
 import { fetchOrCreateUsage, recordSession } from "./lib/usage";
 import { tauriInvoke, isTauri } from "./lib/tauri";
+import {
+  getStoredMicId,
+  primeMicrophoneStream,
+  refreshAudioInputsWithPermission,
+  setStoredMicId,
+} from "./lib/microphone";
 import { AuthScreen } from "./components/AuthScreen";
 import { UpgradeModal } from "./components/UpgradeModal";
 import { AdminPanel } from "./components/AdminPanel";
@@ -14,6 +26,7 @@ import { CloudModal } from "./components/CloudModal";
 import { UiAnswerPanel, buildAssessmentCopyText } from "./components/uiAnswerPanel";
 import { PaSwitch } from "./components/PaSwitch";
 import { ParakeetMenuDropdown } from "./components/ParakeetMenuDropdown";
+import { Tooltip } from "./components/Tooltip";
 import {
   assistantParakeetMenuItems,
   floatingParakeetMenuItems,
@@ -36,11 +49,41 @@ const SESSION_INSTRUCTIONS_KEY = "parakeet-session-instructions";
 const SAVE_TRANSCRIPT_KEY = "parakeet-save-transcript";
 const AUTO_GEN_AI_KEY = "parakeet-auto-gen-ai";
 const ASSISTANT_TAB_KEY = "parakeet-assistant-tab";
+const RESUME_TEXT_STORAGE_KEY = "parakeet-resume-text-v1";
+const RESUME_NAME_STORAGE_KEY = "parakeet-resume-name-v1";
+const RESUME_MAX_STORAGE_CHARS = 400_000;
+/** No new speech for this long → treat question as complete and send (with Auto Generate on). */
+const SPEECH_SILENCE_SUBMIT_MS = 1250;
+
+/** Tauri `innerSize()` is physical pixels; `LogicalSize` expects logical (CSS) pixels. */
+async function tauriLogicalInnerSize(): Promise<{ width: number; height: number }> {
+  const win = getCurrentWindow();
+  const [physical, factor] = await Promise.all([win.innerSize(), win.scaleFactor()]);
+  const logical = physical.toLogical(factor);
+  return { width: logical.width, height: logical.height };
+}
+
+/** Web Speech API (Chromium/WebView2) uses a cloud service; `network` = could not reach it. */
+function messageForSpeechRecognitionError(code: string): string {
+  switch (code) {
+    case "network":
+      return "Speech recognition could not reach the online service (check internet, VPN, or firewall). You can type the question below instead.";
+    case "not-allowed":
+    case "service-not-allowed":
+      return "Microphone or speech recognition was blocked. Check Windows privacy settings for the microphone.";
+    case "audio-capture":
+      return "No microphone input. Check that a mic is connected and not used exclusively by another app.";
+    default:
+      return `Speech error: ${code}`;
+  }
+}
 
 export type SessionUser = { id: string; email?: string; role?: string };
 
 function App() {
   const [isListening, setIsListening] = useState(false);
+  const isListeningRef = useRef(false);
+  isListeningRef.current = isListening;
   const [suggestion, setSuggestion] = useState("");
   const [question, setQuestion] = useState("");
   const [status, setStatus] = useState("");
@@ -66,8 +109,15 @@ function App() {
   );
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const transcriptBufferRef = useRef<string>("");
+  /** Final + interim speech — snapshot when stopping so we submit without waiting for last final. */
+  const lastLiveUtteranceRef = useRef<string>("");
+  const suppressNextOnEndSubmitRef = useRef(false);
+  const autoGenerateAIRef = useRef(true);
   const stopRequestedRef = useRef<boolean>(false);
   const fallbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** After this ms of no new speech, auto-send question (when Auto Generate is on). */
+  const silenceSubmitTimerRef = useRef<number | null>(null);
+  const submitAnswerInFlightRef = useRef(false);
   const sessionStartTimeRef = useRef<number>(0);
   const showTitleBarControls = isTauri();
   const [showAssistantScreen, setShowAssistantScreen] = useState(false);
@@ -87,7 +137,8 @@ function App() {
   const [saveTranscriptMemory, setSaveTranscriptMemory] = useState(
     () => localStorage.getItem(SAVE_TRANSCRIPT_KEY) !== "0"
   );
-  const [autoGenerateAI, setAutoGenerateAI] = useState(() => localStorage.getItem(AUTO_GEN_AI_KEY) === "1");
+  const [autoGenerateAI, setAutoGenerateAI] = useState(() => localStorage.getItem(AUTO_GEN_AI_KEY) !== "0");
+  autoGenerateAIRef.current = autoGenerateAI;
   const [showPaMenu, setShowPaMenu] = useState(false);
   /** Compact top pill bar (from home → AI Interview Assistant) after session is created. */
   const [interviewFloatingBar, setInterviewFloatingBar] = useState(false);
@@ -98,6 +149,17 @@ function App() {
   const [sessionElapsedTick, setSessionElapsedTick] = useState(0);
   const wasCompactBarRef = useRef(false);
   const [globalAiOpen, setGlobalAiOpen] = useState(false);
+
+  /** Last completed Q&A — sent as context for follow-ups only (not shown as a long history in-session). */
+  const lastExchangeRef = useRef<{ question: string; answer: string } | null>(null);
+  const micStreamRef = useRef<MediaStream | null>(null);
+  const [audioInputDevices, setAudioInputDevices] = useState<MediaDeviceInfo[]>([]);
+  const [selectedMicId, setSelectedMicIdState] = useState(() => getStoredMicId());
+
+  const setSelectedMicId = (id: string) => {
+    setSelectedMicIdState(id);
+    setStoredMicId(id);
+  };
 
   // Tauri window: skip taskbar, always on top
   useEffect(() => {
@@ -212,6 +274,19 @@ function App() {
     return () => document.body.classList.remove("parakeet-click-through");
   }, [clickThroughMode]);
 
+  useEffect(() => {
+    if (!showAssistantScreen) return;
+    let cancelled = false;
+    refreshAudioInputsWithPermission()
+      .then((list) => {
+        if (!cancelled) setAudioInputDevices(list);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [showAssistantScreen, interviewFloatingBar]);
+
   const saveSetup = () => {
     const pos = interviewPosition.trim();
     if (!pos) {
@@ -235,6 +310,13 @@ function App() {
       setDocumentText(text);
       setDocumentFileName(file.name);
       setStatus("");
+      try {
+        const toStore = text.length > RESUME_MAX_STORAGE_CHARS ? text.slice(0, RESUME_MAX_STORAGE_CHARS) : text;
+        localStorage.setItem(RESUME_TEXT_STORAGE_KEY, toStore);
+        localStorage.setItem(RESUME_NAME_STORAGE_KEY, file.name);
+      } catch {
+        /* storage full */
+      }
     } catch (err) {
       setError(String(err));
       setStatus("");
@@ -258,11 +340,12 @@ function App() {
         setQuestion(e.payload.question);
         setSuggestion(e.payload.answer);
         setStatus("");
+        lastExchangeRef.current = { question: e.payload.question, answer: e.payload.answer };
         const saveMem = localStorage.getItem(SAVE_TRANSCRIPT_KEY) !== "0";
         if (saveMem) {
           setConversationHistory((prev) => {
             const next = [...prev, { question: e.payload.question, answer: e.payload.answer }];
-            return next.slice(-5);
+            return next.slice(-25);
           });
           setMemorySavedMessage(true);
         }
@@ -313,6 +396,20 @@ function App() {
   useEffect(() => {
     localStorage.setItem(AUTO_GEN_AI_KEY, autoGenerateAI ? "1" : "0");
   }, [autoGenerateAI]);
+
+  useEffect(() => {
+    if (!session) return;
+    try {
+      const stored = localStorage.getItem(RESUME_TEXT_STORAGE_KEY);
+      const name = localStorage.getItem(RESUME_NAME_STORAGE_KEY);
+      if (stored) {
+        setDocumentText((prev) => prev || stored);
+        if (name) setDocumentFileName((prev) => prev || name);
+      }
+    } catch {
+      /* quota or disabled */
+    }
+  }, [session]);
   useEffect(() => {
     localStorage.setItem(ASSISTANT_TAB_KEY, assistantTab);
   }, [assistantTab]);
@@ -346,22 +443,33 @@ function App() {
   const submitTranscript = async (transcript: string) => {
     const trimmed = transcript.trim();
     if (trimmed.length < 3) return;
+    submitAnswerInFlightRef.current = true;
     setEditableQuestion(null);
     setSuggestion("");
     try {
       setStatus("Generating answer...");
       setQuestion(trimmed);
       const interviewContext = buildInterviewContextForModel();
+      const prev =
+        lastExchangeRef.current && lastExchangeRef.current.question !== trimmed
+          ? [
+              {
+                question: lastExchangeRef.current.question,
+                answer: lastExchangeRef.current.answer,
+              },
+            ]
+          : undefined;
       await tauriInvoke("answer_from_transcript", {
         transcript: trimmed,
         interviewContext: interviewContext || undefined,
         documentText: documentText.trim() || undefined,
-        previousQa:
-          saveTranscriptMemory && conversationHistory.length > 0 ? conversationHistory : undefined,
+        previousQa: prev,
       });
     } catch (err) {
       setError(String(err));
       setStatus("");
+    } finally {
+      submitAnswerInFlightRef.current = false;
     }
   };
 
@@ -379,8 +487,16 @@ function App() {
     setSuggestion("");
     setQuestion("");
     transcriptBufferRef.current = "";
+    lastLiveUtteranceRef.current = "";
+    if (silenceSubmitTimerRef.current != null) {
+      clearTimeout(silenceSubmitTimerRef.current);
+      silenceSubmitTimerRef.current = null;
+    }
     setStatus("Starting...");
     sessionStartTimeRef.current = Date.now();
+
+    micStreamRef.current?.getTracks().forEach((t) => t.stop());
+    micStreamRef.current = null;
 
     const SpeechRecognitionAPI =
       (window as Window).SpeechRecognition || (window as Window).webkitSpeechRecognition;
@@ -390,53 +506,139 @@ function App() {
     }
 
     try {
+      const stream = await primeMicrophoneStream(selectedMicId.trim() || null);
+      micStreamRef.current = stream;
+    } catch {
+      try {
+        const stream = await primeMicrophoneStream(null);
+        micStreamRef.current = stream;
+      } catch (e) {
+        setError(
+          `Microphone: ${e instanceof Error ? e.message : String(e)}. Pick another device below or check Windows sound settings.`
+        );
+        setStatus("");
+        return;
+      }
+    }
+
+    try {
       const recognition = new SpeechRecognitionAPI();
       recognition.continuous = true;
       recognition.interimResults = true;
+      recognition.maxAlternatives = 1;
       recognition.lang = sessionLanguage || "en-US";
+
+      const clearSilenceTimer = () => {
+        if (silenceSubmitTimerRef.current != null) {
+          clearTimeout(silenceSubmitTimerRef.current);
+          silenceSubmitTimerRef.current = null;
+        }
+      };
+
+      const scheduleSilenceAutoSubmit = () => {
+        if (!autoGenerateAIRef.current) return;
+        clearSilenceTimer();
+        silenceSubmitTimerRef.current = window.setTimeout(() => {
+          silenceSubmitTimerRef.current = null;
+          if (!isListeningRef.current || stopRequestedRef.current) return;
+          if (submitAnswerInFlightRef.current) return;
+          const t = (
+            lastLiveUtteranceRef.current.trim() || transcriptBufferRef.current.trim()
+          ).trim();
+          if (t.length < 3) return;
+          lastLiveUtteranceRef.current = "";
+          transcriptBufferRef.current = "";
+          setFloatingChatOpen(true);
+          void submitTranscript(t);
+        }, SPEECH_SILENCE_SUBMIT_MS);
+      };
+
       recognition.onresult = (e: SpeechRecognitionEvent) => {
-        for (let i = e.resultIndex; i < e.results.length; i++) {
+        let finalText = "";
+        let interimText = "";
+        for (let i = 0; i < e.results.length; i++) {
+          const part = e.results[i][0]?.transcript ?? "";
           if (e.results[i].isFinal) {
-            const part = e.results[i][0].transcript;
-            if (part) {
-              const prev = transcriptBufferRef.current;
-              transcriptBufferRef.current = prev ? `${prev} ${part}` : part;
-              setQuestion(transcriptBufferRef.current);
-            }
+            finalText += part;
+          } else {
+            interimText += part;
           }
+        }
+        const ft = finalText.trim();
+        const it = interimText.trim();
+        const combined = it ? (ft ? `${ft} ${it}` : it) : ft;
+        transcriptBufferRef.current = ft;
+        lastLiveUtteranceRef.current = combined;
+        setQuestion(combined);
+        if (combined.trim().length >= 2) {
+          scheduleSilenceAutoSubmit();
         }
       };
       recognition.onerror = (e: SpeechRecognitionErrorEvent) => {
-        if (e.error !== "no-speech" && e.error !== "aborted") {
-          setError(`Speech error: ${e.error}`);
+        if (e.error === "no-speech" || e.error === "aborted") {
+          return;
         }
+        setError(messageForSpeechRecognitionError(e.error));
       };
       recognition.onend = () => {
         if (stopRequestedRef.current) {
+          clearSilenceTimer();
           stopRequestedRef.current = false;
           if (fallbackTimeoutRef.current) {
             clearTimeout(fallbackTimeoutRef.current);
             fallbackTimeoutRef.current = null;
           }
-          const transcript = transcriptBufferRef.current.trim();
+          const transcript = (
+            lastLiveUtteranceRef.current.trim() || transcriptBufferRef.current.trim()
+          ).trim();
           transcriptBufferRef.current = "";
-          if (transcript.length >= 3) submitTranscript(transcript);
+          lastLiveUtteranceRef.current = "";
+          const suppress = suppressNextOnEndSubmitRef.current;
+          suppressNextOnEndSubmitRef.current = false;
+          if (!suppress && autoGenerateAIRef.current && transcript.length >= 3) {
+            void submitTranscript(transcript);
+          }
+          return;
+        }
+        /* Web Speech often ends after a pause even with continuous=true — restart so one mic tap keeps listening. */
+        if (isListeningRef.current && recognitionRef.current === recognition) {
+          window.setTimeout(() => {
+            if (!isListeningRef.current || stopRequestedRef.current) return;
+            if (recognitionRef.current !== recognition) return;
+            try {
+              recognition.start();
+            } catch {
+              /* InvalidStateError: already running */
+            }
+          }, 120);
         }
       };
       recognition.start();
       recognitionRef.current = recognition;
       setIsListening(true);
       tauriInvoke("set_listening", { listening: true });
-      setStatus("Listening... Hear the question, then press Stop to generate answer.");
+      setStatus(
+        autoGenerateAI
+          ? "Listening… Pause briefly after your question — answer is sent automatically."
+          : "Listening… Press Stop (or AI Answer) when you finish your question."
+      );
     } catch (err) {
-      setError(`Microphone access denied: ${err}`);
+      micStreamRef.current?.getTracks().forEach((t) => t.stop());
+      micStreamRef.current = null;
+      setError(`Could not start listening: ${err}`);
       setStatus("");
     }
   };
 
   const stopPractice = async () => {
+    if (silenceSubmitTimerRef.current != null) {
+      clearTimeout(silenceSubmitTimerRef.current);
+      silenceSubmitTimerRef.current = null;
+    }
     const startedAt = sessionStartTimeRef.current;
     stopRequestedRef.current = true;
+    micStreamRef.current?.getTracks().forEach((t) => t.stop());
+    micStreamRef.current = null;
     try {
       recognitionRef.current?.stop();
     } catch {
@@ -458,11 +660,18 @@ function App() {
       if (stopRequestedRef.current) {
         stopRequestedRef.current = false;
         fallbackTimeoutRef.current = null;
-        const transcript = transcriptBufferRef.current.trim();
+        const transcript = (
+          lastLiveUtteranceRef.current.trim() || transcriptBufferRef.current.trim()
+        ).trim();
         transcriptBufferRef.current = "";
-        if (transcript.length >= 3) submitTranscript(transcript);
+        lastLiveUtteranceRef.current = "";
+        const suppress = suppressNextOnEndSubmitRef.current;
+        suppressNextOnEndSubmitRef.current = false;
+        if (!suppress && autoGenerateAIRef.current && transcript.length >= 3) {
+          void submitTranscript(transcript);
+        }
       }
-    }, 500);
+    }, 120);
   };
 
   const floatingAnalyzeScreen = async () => {
@@ -488,7 +697,22 @@ function App() {
   const floatingAiAnswer = async () => {
     setError("");
     if (isListening) {
+      const t = (
+        lastLiveUtteranceRef.current.trim() ||
+        question.trim() ||
+        typeQuestionInput.trim() ||
+        transcriptBufferRef.current.trim()
+      ).trim();
+      suppressNextOnEndSubmitRef.current = true;
       await stopPractice();
+      if (t.length >= 3) {
+        if (typeQuestionInput.trim()) setTypeQuestionInput("");
+        await submitTranscript(t);
+        setFloatingChatOpen(true);
+      } else {
+        setStatus("Listen or type a question, then tap AI Answer.");
+        setTimeout(() => setStatus(""), 4500);
+      }
       return;
     }
     const fromBuffer = transcriptBufferRef.current.trim();
@@ -539,20 +763,15 @@ function App() {
         const win = getCurrentWindow();
         if (useCompactFloatingBar) {
           wasCompactBarRef.current = true;
-          const monitor = await primaryMonitor();
+          const monitor = (await currentMonitor()) ?? (await primaryMonitor());
           const scale = monitor?.scaleFactor ?? (await win.scaleFactor());
           const sw = monitor ? monitor.size.width / scale : 1280;
-          const sh = monitor ? monitor.size.height / scale : 800;
           const x0 = monitor?.position != null ? monitor.position.x / scale : 0;
           const y0 = monitor?.position != null ? monitor.position.y / scale : 0;
           const width = Math.min(920, Math.max(520, sw - 40));
-          let height = 58;
-          height += floatingTranscriptOpen ? (floatingTranscriptExpanded ? 120 : 52) : 0;
-          if (screenAssessmentHotkey) height += 100;
-          if (floatingChatOpen) height += Math.min(280, Math.floor(sh * 0.42));
-          if (error) height += 48;
-          height = Math.min(height + 32, sh - 20);
-          await win.setSize(new LogicalSize(Math.round(width), Math.round(height)));
+          const curLogical = await tauriLogicalInnerSize();
+          const safeH = Math.max(120, Math.round(curLogical.height));
+          await win.setSize(new LogicalSize(Math.round(width), safeH));
           await win.setPosition(
             new LogicalPosition(Math.round(x0 + (sw - width) / 2), Math.round(y0 + 10))
           );
@@ -568,14 +787,60 @@ function App() {
         /* ignore */
       }
     })();
+  }, [useCompactFloatingBar, showAssistantScreen]);
+
+  /** Compact bar: window height follows real layout (long answers); width/position still from effect above. */
+  useEffect(() => {
+    if (!isTauri() || !useCompactFloatingBar) return;
+    const main = document.querySelector(".main.main-floating-nav");
+    const stack = document.querySelector(".fn-stack");
+    if (!main || !stack) return;
+
+    const fitFloatingBarWindow = () => {
+      const stackH = Math.max(stack.scrollHeight, stack.getBoundingClientRect().height, 1);
+      const ms = getComputedStyle(main);
+      const pt = parseFloat(ms.paddingTop) || 0;
+      const pb = parseFloat(ms.paddingBottom) || 0;
+      const rawH = Math.ceil(stackH + pt + pb + 16);
+      const contentH = Number.isFinite(rawH) ? rawH : 120;
+      const maxH = Math.floor(window.screen.availHeight * 0.94);
+      const minH = 96;
+      const h = Math.min(Math.max(minH, contentH), maxH);
+      if (!Number.isFinite(h) || h < minH) return;
+      void (async () => {
+        try {
+          const win = getCurrentWindow();
+          const { width: lw } = await tauriLogicalInnerSize();
+          const w = Math.max(320, Math.round(lw));
+          const hh = Math.max(minH, Math.round(h));
+          await win.setSize(new LogicalSize(w, hh));
+        } catch {
+          /* ignore */
+        }
+      })();
+    };
+
+    const ro = new ResizeObserver(() => requestAnimationFrame(fitFloatingBarWindow));
+    ro.observe(stack);
+    ro.observe(main);
+
+    const timers = [0, 100, 320, 800].map((ms) => window.setTimeout(fitFloatingBarWindow, ms));
+    requestAnimationFrame(() => requestAnimationFrame(fitFloatingBarWindow));
+
+    return () => {
+      ro.disconnect();
+      timers.forEach((t) => clearTimeout(t));
+    };
   }, [
     useCompactFloatingBar,
-    showAssistantScreen,
     floatingTranscriptOpen,
     floatingTranscriptExpanded,
     floatingChatOpen,
     screenAssessmentHotkey,
     error,
+    suggestion,
+    question,
+    status,
   ]);
 
   const refreshSession = () => {
@@ -599,6 +864,56 @@ function App() {
     Math.round(usage?.sessions_used ?? 0)
   );
 
+  useEffect(() => {
+    if (!isTauri() || useCompactFloatingBar) return;
+    if (!suggestion.trim() && !question.trim()) return;
+    const app = document.querySelector(".app");
+    if (!app) return;
+
+    const fitWindowToContent = () => {
+      const titleBar = document.querySelector(".app > .title-bar");
+      const tbarH = titleBar instanceof HTMLElement ? titleBar.offsetHeight : 0;
+      let scrollH = Math.ceil(
+        Math.max(
+          document.documentElement.scrollHeight,
+          document.body.scrollHeight,
+          app.scrollHeight
+        )
+      );
+      const lm = document.querySelector(".main.main-listening");
+      if (lm instanceof HTMLElement) {
+        scrollH = Math.max(scrollH, Math.ceil(lm.offsetHeight + tbarH + 20));
+      }
+      const maxH = Math.floor(window.screen.availHeight * 0.94);
+      const minH = 460;
+      const pad = 56;
+      const h = Math.min(Math.max(minH, scrollH + pad), maxH);
+      getCurrentWindow().setSize(new LogicalSize(420, h)).catch(() => {});
+    };
+
+    const ro = new ResizeObserver(() => {
+      requestAnimationFrame(fitWindowToContent);
+    });
+    ro.observe(app);
+    ro.observe(document.documentElement);
+    const listeningMain = document.querySelector(".main.main-listening");
+    if (listeningMain) ro.observe(listeningMain);
+
+    const timers = [
+      window.setTimeout(fitWindowToContent, 0),
+      window.setTimeout(fitWindowToContent, 120),
+      window.setTimeout(fitWindowToContent, 450),
+      window.setTimeout(fitWindowToContent, 1200),
+    ];
+
+    requestAnimationFrame(() => requestAnimationFrame(fitWindowToContent));
+
+    return () => {
+      ro.disconnect();
+      timers.forEach((t) => clearTimeout(t));
+    };
+  }, [suggestion, question, useCompactFloatingBar]);
+
   if (!session) {
     return (
       <div className="app">
@@ -611,27 +926,30 @@ function App() {
           </div>
           {showTitleBarControls && (
             <div className="title-bar-controls">
-              <button
-                type="button"
-                className="title-bar-btn title-bar-minimize"
-                onClick={() => getCurrentWindow().minimize()}
-                title="Minimize"
-                aria-label="Minimize"
-              />
-              <button
-                type="button"
-                className="title-bar-btn title-bar-maximize"
-                onClick={() => getCurrentWindow().toggleMaximize()}
-                title="Maximize"
-                aria-label="Maximize"
-              />
-              <button
-                type="button"
-                className="title-bar-btn title-bar-close"
-                onClick={() => getCurrentWindow().close()}
-                title="Close"
-                aria-label="Close"
-              />
+              <Tooltip label="Minimize">
+                <button
+                  type="button"
+                  className="title-bar-btn title-bar-minimize"
+                  onClick={() => getCurrentWindow().minimize()}
+                  aria-label="Minimize"
+                />
+              </Tooltip>
+              <Tooltip label="Maximize">
+                <button
+                  type="button"
+                  className="title-bar-btn title-bar-maximize"
+                  onClick={() => getCurrentWindow().toggleMaximize()}
+                  aria-label="Maximize"
+                />
+              </Tooltip>
+              <Tooltip label="Close">
+                <button
+                  type="button"
+                  className="title-bar-btn title-bar-close"
+                  onClick={() => getCurrentWindow().close()}
+                  aria-label="Close"
+                />
+              </Tooltip>
             </div>
           )}
         </header>
@@ -659,32 +977,34 @@ function App() {
           </div>
           {showTitleBarControls && (
             <>
-              <button
-                type="button"
-                className="pa-stat-pill"
-                onClick={() => {
-                  setShowAssistantScreen(true);
-                  setAssistantTab("past");
-                  setInterviewFloatingBar(false);
-                }}
-                title="Past sessions"
-              >
-                🔗 {sessionStatCount}
-              </button>
+              <Tooltip label="Past sessions">
+                <button
+                  type="button"
+                  className="pa-stat-pill"
+                  onClick={() => {
+                    setShowAssistantScreen(true);
+                    setAssistantTab("past");
+                    setInterviewFloatingBar(false);
+                  }}
+                >
+                  🔗 {sessionStatCount}
+                </button>
+              </Tooltip>
               <div className="title-bar-controls">
                 <div id="pa-menu-anchor" style={{ position: "relative" }}>
-                  <button
-                    type="button"
-                    className="title-bar-btn"
-                    aria-label="Menu"
-                    title="Menu"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setShowPaMenu((v) => !v);
-                    }}
-                  >
-                    ⋮
-                  </button>
+                  <Tooltip label="Menu">
+                    <button
+                      type="button"
+                      className="title-bar-btn"
+                      aria-label="Menu"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowPaMenu((v) => !v);
+                      }}
+                    >
+                      ⋮
+                    </button>
+                  </Tooltip>
                   <ParakeetMenuDropdown
                     open={showPaMenu}
                     items={homeParakeetMenuItems({
@@ -718,35 +1038,39 @@ function App() {
                   />
                 </div>
                 {isTauri() && (
+                  <Tooltip label="Place window">
+                    <button
+                      type="button"
+                      className="title-bar-btn title-bar-move"
+                      onClick={() => setShowPositionPicker(true)}
+                      aria-label="Move window"
+                    />
+                  </Tooltip>
+                )}
+                <Tooltip label="Minimize">
                   <button
                     type="button"
-                    className="title-bar-btn title-bar-move"
-                    onClick={() => setShowPositionPicker(true)}
-                    title="Place window"
-                    aria-label="Move window"
+                    className="title-bar-btn title-bar-minimize"
+                    onClick={() => getCurrentWindow().minimize()}
+                    aria-label="Minimize"
                   />
-                )}
-                <button
-                  type="button"
-                  className="title-bar-btn title-bar-minimize"
-                  onClick={() => getCurrentWindow().minimize()}
-                  title="Minimize"
-                  aria-label="Minimize"
-                />
-                <button
-                  type="button"
-                  className="title-bar-btn title-bar-maximize"
-                  onClick={() => getCurrentWindow().toggleMaximize()}
-                  title="Maximize"
-                  aria-label="Maximize"
-                />
-                <button
-                  type="button"
-                  className="title-bar-btn title-bar-close"
-                  onClick={() => getCurrentWindow().close()}
-                  title="Close"
-                  aria-label="Close"
-                />
+                </Tooltip>
+                <Tooltip label="Maximize">
+                  <button
+                    type="button"
+                    className="title-bar-btn title-bar-maximize"
+                    onClick={() => getCurrentWindow().toggleMaximize()}
+                    aria-label="Maximize"
+                  />
+                </Tooltip>
+                <Tooltip label="Close">
+                  <button
+                    type="button"
+                    className="title-bar-btn title-bar-close"
+                    onClick={() => getCurrentWindow().close()}
+                    aria-label="Close"
+                  />
+                </Tooltip>
               </div>
             </>
           )}
@@ -849,7 +1173,7 @@ function App() {
 
   return (
     <div
-      className={`app ${useCompactFloatingBar ? "app-floating-bar" : ""} ${isListeningLayout ? "app-listening" : ""} ${clickThroughMode ? "app-click-through" : ""}`}
+      className={`app scrollbar-none ${useCompactFloatingBar ? "app-floating-bar" : ""} ${isListeningLayout ? "app-listening" : ""} ${clickThroughMode ? "app-click-through" : ""}`}
     >
       {useCompactFloatingBar ? (
         <FloatingInterviewBar
@@ -883,7 +1207,6 @@ function App() {
           transcriptBufferRef={transcriptBufferRef}
           screenAssessmentHotkey={screenAssessmentHotkey}
           setScreenAssessmentHotkey={setScreenAssessmentHotkey}
-          conversationHistory={conversationHistory}
           typeQuestionInput={typeQuestionInput}
           setTypeQuestionInput={setTypeQuestionInput}
           submitTranscript={submitTranscript}
@@ -900,82 +1223,83 @@ function App() {
         </div>
         {showTitleBarControls && (
           <>
-            <button
-              type="button"
-              className="pa-stat-pill"
-              onClick={() => setAssistantTab("past")}
-              title="Past sessions"
-            >
-              🔗 {sessionStatCount}
-            </button>
+            <Tooltip label="Past sessions">
+              <button type="button" className="pa-stat-pill" onClick={() => setAssistantTab("past")}>
+                🔗 {sessionStatCount}
+              </button>
+            </Tooltip>
             <div className="title-bar-controls">
               <div id="pa-menu-anchor" style={{ position: "relative" }}>
-                <button
-                  type="button"
-                  className="title-bar-btn"
-                  aria-label="Menu"
-                  title="Menu"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setShowPaMenu((v) => !v);
-                  }}
-                >
-                  ⋮
-                </button>
+                <Tooltip label="Menu">
+                  <button
+                    type="button"
+                    className="title-bar-btn"
+                    aria-label="Menu"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowPaMenu((v) => !v);
+                    }}
+                  >
+                    ⋮
+                  </button>
+                </Tooltip>
                 <ParakeetMenuDropdown open={showPaMenu} items={assistantMenuItems} />
               </div>
               {isTauri() && (
+                <Tooltip label="Place window">
+                  <button
+                    type="button"
+                    className="title-bar-btn title-bar-move"
+                    onClick={() => setShowPositionPicker(true)}
+                    aria-label="Move window"
+                  />
+                </Tooltip>
+              )}
+              <Tooltip label="Minimize">
                 <button
                   type="button"
-                  className="title-bar-btn title-bar-move"
-                  onClick={() => setShowPositionPicker(true)}
-                  title="Place window"
-                  aria-label="Move window"
+                  className="title-bar-btn title-bar-minimize"
+                  onClick={() => getCurrentWindow().minimize()}
+                  aria-label="Minimize"
                 />
-              )}
-              <button
-                type="button"
-                className="title-bar-btn title-bar-minimize"
-                onClick={() => getCurrentWindow().minimize()}
-                title="Minimize"
-                aria-label="Minimize"
-              />
-              <button
-                type="button"
-                className="title-bar-btn title-bar-maximize"
-                onClick={() => getCurrentWindow().toggleMaximize()}
-                title="Maximize"
-                aria-label="Maximize"
-              />
-              <button
-                type="button"
-                className="title-bar-btn title-bar-close"
-                onClick={() => getCurrentWindow().close()}
-                title="Close"
-                aria-label="Close"
-              />
+              </Tooltip>
+              <Tooltip label="Maximize">
+                <button
+                  type="button"
+                  className="title-bar-btn title-bar-maximize"
+                  onClick={() => getCurrentWindow().toggleMaximize()}
+                  aria-label="Maximize"
+                />
+              </Tooltip>
+              <Tooltip label="Close">
+                <button
+                  type="button"
+                  className="title-bar-btn title-bar-close"
+                  onClick={() => getCurrentWindow().close()}
+                  aria-label="Close"
+                />
+              </Tooltip>
             </div>
           </>
         )}
       </header>
       {!isListeningLayout && (
-        <div className="pa-hints">
+        <div className="pa-hints pa-hints-compact">
           {clickThroughMode && (
             <p className="privacy-badge click-through-hint">
-              Clicks go to app behind — <strong>Ctrl+Alt+A</strong> to use Parakeet again
+              <strong>Ctrl+Alt+A</strong> — click through off
             </p>
           )}
           <p className="privacy-badge">
-            🔒 Hidden from screen share – never visible to interviewer
-          </p>
-          <p className="privacy-badge">
-            ⌨️ <strong>Ctrl+Alt+A</strong> – bring window to front · <strong>Ctrl+Alt+S</strong> – screen capture &amp; solve
+            🔒 Screen-share safe · ⌨️ <strong>Ctrl+Alt+A</strong> front · <strong>Ctrl+Alt+S</strong> capture
           </p>
           {session?.user?.email && (
-            <span className="signed-in-as" title="Signed in">
-              {session.user.email}
-              {usage ? ` · ${formatUsage(usage)}` : ""}
-            </span>
+            <Tooltip label="Signed in">
+              <span className="signed-in-as">
+                {session.user.email}
+                {usage ? ` · ${formatUsage(usage)}` : ""}
+              </span>
+            </Tooltip>
           )}
         </div>
       )}
@@ -986,10 +1310,12 @@ function App() {
             <span className="listening-status" data-tauri-drag-region>
               {isListening ? (status || "Listening...") : suggestion ? "Answer ready" : question ? "Generating answer…" : "Parakeet"}
               {isTauri() && (
-                <span className="listening-shortcut-hint" title="Screen capture & solve">
-                  {" "}
-                  · Ctrl+Alt+S
-                </span>
+                <Tooltip label="Screen capture & solve">
+                  <span className="listening-shortcut-hint">
+                    {" "}
+                    · Ctrl+Alt+S
+                  </span>
+                </Tooltip>
               )}
             </span>
             {isListening ? (
@@ -1019,20 +1345,21 @@ function App() {
                     }}
                     placeholder="Or type a question and get AI answer"
                   />
-                  <button
-                    type="button"
-                    className="btn btn-primary btn-sm"
-                    onClick={() => {
-                      const t = typeQuestionInput.trim();
-                      if (t.length >= 3) {
-                        submitTranscript(t);
-                        setTypeQuestionInput("");
-                      }
-                    }}
-                    title="Generate answer from typed question"
-                  >
-                    Get answer
-                  </button>
+                  <Tooltip label="Generate answer from typed question">
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm"
+                      onClick={() => {
+                        const t = typeQuestionInput.trim();
+                        if (t.length >= 3) {
+                          submitTranscript(t);
+                          setTypeQuestionInput("");
+                        }
+                      }}
+                    >
+                      Get answer
+                    </button>
+                  </Tooltip>
                 </div>
                 <button
                   type="button"
@@ -1087,7 +1414,7 @@ function App() {
               </div>
             </div>
           )}
-          <div className="listening-center">
+          <div className="listening-center scrollbar-none">
             {editableQuestion !== null ? (
               <div className="suggestion-box question-edit-box center-box">
                 <h3>Edit question</h3>
@@ -1114,15 +1441,16 @@ function App() {
                   <h3>Question heard</h3>
                   <p className="question-text">{question}</p>
                 </div>
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-icon"
-                  onClick={() => setEditableQuestion(question)}
-                  title="Edit question"
-                  aria-label="Edit question"
-                >
-                  ✏️
-                </button>
+                <Tooltip label="Edit question">
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-icon"
+                    onClick={() => setEditableQuestion(question)}
+                    aria-label="Edit question"
+                  >
+                    ✏️
+                  </button>
+                </Tooltip>
               </div>
             ) : null}
             {suggestion && (
@@ -1132,7 +1460,7 @@ function App() {
                   <ReactMarkdown>{suggestion}</ReactMarkdown>
                 </div>
                 {memorySavedMessage && (
-                  <p className="memory-saved-badge">Previous question saved to memory — follow-ups can refer to this.</p>
+                  <p className="memory-saved-badge">Last Q&amp;A kept for follow-ups (&quot;explain that&quot;, etc.).</p>
                 )}
               </div>
             )}
@@ -1142,7 +1470,7 @@ function App() {
           </div>
         </main>
       ) : (
-      <main className="main pa-main">
+      <main className="main pa-main scrollbar-none">
         <div className="pa-shell">
           <div className="pa-tabs" role="tablist">
             <button
@@ -1195,7 +1523,12 @@ function App() {
                 <div className="pa-field">
                   <div className="pa-field-header">
                     <span className="pa-field-label">
-                      Position / role <span className="pa-info" title="Keeps answers on-topic">i</span>
+                      Position / role{" "}
+                      <Tooltip label="Keeps answers on-topic">
+                        <span className="pa-info" aria-hidden>
+                          i
+                        </span>
+                      </Tooltip>
                     </span>
                   </div>
                   <input
@@ -1210,7 +1543,12 @@ function App() {
                 <div className="pa-field">
                   <div className="pa-field-header">
                     <span className="pa-field-label">
-                      Interview type <span className="pa-info" title="Technical vs behavioral">i</span>
+                      Interview type{" "}
+                      <Tooltip label="Technical vs behavioral">
+                        <span className="pa-info" aria-hidden>
+                          i
+                        </span>
+                      </Tooltip>
                     </span>
                   </div>
                   <select
@@ -1226,7 +1564,12 @@ function App() {
                 <div className="pa-field">
                   <div className="pa-field-header">
                     <span className="pa-field-label">
-                      Language <span className="pa-info" title="Speech recognition language">i</span>
+                      Language{" "}
+                      <Tooltip label="Speech recognition language">
+                        <span className="pa-info" aria-hidden>
+                          i
+                        </span>
+                      </Tooltip>
                     </span>
                   </div>
                   <select
@@ -1243,113 +1586,181 @@ function App() {
                   </select>
                 </div>
                 <div className="pa-field">
-                  <div className="pa-toggle-row">
-                    <span className="pa-field-label" style={{ margin: 0 }}>
-                      Simple language <span className="pa-info" title="Plain, easy-to-follow answers">i</span>
-                    </span>
-                    <PaSwitch checked={simpleLanguage} onChange={setSimpleLanguage} />
-                  </div>
-                </div>
-                <div className="pa-field">
                   <div className="pa-field-header">
                     <span className="pa-field-label">
-                      Extra context / instructions <span className="pa-info" title="Sent to the model with each answer">i</span>
+                      Microphone{" "}
+                      <Tooltip label="Which input to open before listening">
+                        <span className="pa-info" aria-hidden>
+                          i
+                        </span>
+                      </Tooltip>
                     </span>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => {
+                        refreshAudioInputsWithPermission()
+                          .then(setAudioInputDevices)
+                          .catch(() => setError("Could not list microphones."));
+                      }}
+                    >
+                      Refresh list
+                    </button>
                   </div>
-                  <textarea
-                    className="pa-textarea"
-                    placeholder="e.g. use a casual tone."
-                    value={extraSessionInstructions}
-                    onChange={(e) => setExtraSessionInstructions(e.target.value)}
-                    rows={4}
-                  />
-                </div>
-                <div className="pa-field">
-                  <div className="pa-field-header">
-                    <span className="pa-field-label">
-                      Resume <span className="pa-info" title="PDF or Word used as context">i</span>
-                    </span>
-                  </div>
-                  <input
-                    type="file"
-                    accept=".pdf,.doc,.docx"
-                    onChange={onDocumentUpload}
-                    id="doc-upload"
-                    className="file-input"
-                  />
-                  <div className="pa-resume-row">
-                    <div className="pa-resume-icon" aria-hidden>
-                      💼
-                    </div>
-                    <div className="pa-resume-body">
-                      <select
-                        className="pa-select"
-                        value={documentFileName ? "attached" : ""}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          if (v === "__upload__") {
-                            document.getElementById("doc-upload")?.click();
-                          }
-                          if (v === "") {
-                            setDocumentText("");
-                            setDocumentFileName("");
-                          }
-                        }}
-                      >
-                        <option value="">No resume attached</option>
-                        {documentFileName ? <option value="attached">{documentFileName}</option> : null}
-                        <option value="__upload__">Upload PDF or Word…</option>
-                      </select>
-                      {documentFileName ? (
-                        <button
-                          type="button"
-                          className="btn btn-ghost btn-sm"
-                          title="Remove resume"
-                          onClick={() => {
-                            setDocumentText("");
-                            setDocumentFileName("");
-                          }}
-                        >
-                          ×
-                        </button>
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
-                <div className="pa-field">
-                  <div className="pa-toggle-row">
-                    <div className="pa-toggle-label-wrap">
-                      <span className="pa-field-label" style={{ margin: 0 }}>
-                        Auto Generate AI Response
-                      </span>
-                      <span className="pa-badge-new">New</span>
-                    </div>
-                    <PaSwitch checked={autoGenerateAI} onChange={setAutoGenerateAI} />
-                  </div>
+                  <select
+                    className="pa-select"
+                    value={selectedMicId}
+                    onChange={(e) => setSelectedMicId(e.target.value)}
+                  >
+                    <option value="">Auto — default device (headset or built-in)</option>
+                    {audioInputDevices.map((d, idx) => (
+                      <option key={d.deviceId || `mic-${idx}`} value={d.deviceId}>
+                        {d.label || `Microphone ${idx + 1}`}
+                      </option>
+                    ))}
+                  </select>
                   <p className="audio-tip" style={{ marginTop: "var(--space-2)", marginBottom: 0 }}>
-                    Preference is saved. Stop listening still generates answers as before.
+                    We open this device before speech recognition so Windows uses the mic you expect (e.g. Bluetooth headphones).
                   </p>
                 </div>
-                <div className="pa-field">
-                  <div className="pa-toggle-row">
-                    <span className="pa-field-label" style={{ margin: 0 }}>
-                      Save Transcript <span className="pa-info" title="Remember Q&amp;A for follow-ups">i</span>
-                    </span>
-                    <PaSwitch checked={saveTranscriptMemory} onChange={setSaveTranscriptMemory} />
+                <details className="pa-advanced">
+                  <summary className="pa-advanced-summary">More options</summary>
+                  <div className="pa-advanced-body">
+                    <div className="pa-field">
+                      <div className="pa-toggle-row">
+                        <span className="pa-field-label" style={{ margin: 0 }}>
+                          Simple language{" "}
+                          <Tooltip label="Plain, easy-to-follow answers">
+                            <span className="pa-info" aria-hidden>
+                              i
+                            </span>
+                          </Tooltip>
+                        </span>
+                        <PaSwitch checked={simpleLanguage} onChange={setSimpleLanguage} />
+                      </div>
+                    </div>
+                    <div className="pa-field">
+                      <div className="pa-field-header">
+                        <span className="pa-field-label">
+                          Extra context / instructions{" "}
+                          <Tooltip label="Sent to the model with each answer">
+                            <span className="pa-info" aria-hidden>
+                              i
+                            </span>
+                          </Tooltip>
+                        </span>
+                      </div>
+                      <textarea
+                        className="pa-textarea"
+                        placeholder="e.g. use a casual tone."
+                        value={extraSessionInstructions}
+                        onChange={(e) => setExtraSessionInstructions(e.target.value)}
+                        rows={3}
+                      />
+                    </div>
+                    <div className="pa-field">
+                      <div className="pa-field-header">
+                        <span className="pa-field-label">
+                          Resume{" "}
+                          <Tooltip label="PDF or Word used as context">
+                            <span className="pa-info" aria-hidden>
+                              i
+                            </span>
+                          </Tooltip>
+                        </span>
+                      </div>
+                      <input
+                        type="file"
+                        accept=".pdf,.doc,.docx"
+                        onChange={onDocumentUpload}
+                        id="doc-upload"
+                        className="file-input"
+                      />
+                      <div className="pa-resume-row">
+                        <div className="pa-resume-icon" aria-hidden>
+                          💼
+                        </div>
+                        <div className="pa-resume-body">
+                          <select
+                            className="pa-select"
+                            value={documentFileName ? "attached" : ""}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              if (v === "__upload__") {
+                                document.getElementById("doc-upload")?.click();
+                              }
+                              if (v === "") {
+                                setDocumentText("");
+                                setDocumentFileName("");
+                              }
+                            }}
+                          >
+                            <option value="">No resume attached</option>
+                            {documentFileName ? <option value="attached">{documentFileName}</option> : null}
+                            <option value="__upload__">Upload PDF or Word…</option>
+                          </select>
+                          {documentFileName ? (
+                            <Tooltip label="Remove resume">
+                              <button
+                                type="button"
+                                className="btn btn-ghost btn-sm"
+                                aria-label="Remove resume"
+                                onClick={() => {
+                                  setDocumentText("");
+                                  setDocumentFileName("");
+                                  try {
+                                    localStorage.removeItem(RESUME_TEXT_STORAGE_KEY);
+                                    localStorage.removeItem(RESUME_NAME_STORAGE_KEY);
+                                  } catch {
+                                    /* ignore */
+                                  }
+                                }}
+                              >
+                                ×
+                              </button>
+                            </Tooltip>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="pa-field">
+                      <div className="pa-toggle-row">
+                        <div className="pa-toggle-label-wrap">
+                          <span className="pa-field-label" style={{ margin: 0 }}>
+                            Auto Generate AI Response
+                          </span>
+                          <span className="pa-badge-new">New</span>
+                        </div>
+                        <PaSwitch checked={autoGenerateAI} onChange={setAutoGenerateAI} />
+                      </div>
+                    </div>
+                    <div className="pa-field">
+                      <div className="pa-toggle-row">
+                        <span className="pa-field-label" style={{ margin: 0 }}>
+                          Save to Past Sessions{" "}
+                          <Tooltip label="Archive Q&A in Past tab">
+                            <span className="pa-info" aria-hidden>
+                              i
+                            </span>
+                          </Tooltip>
+                        </span>
+                        <PaSwitch checked={saveTranscriptMemory} onChange={setSaveTranscriptMemory} />
+                      </div>
+                    </div>
+                    <label className="screen-share-toggle" style={{ marginTop: "var(--space-2)" }}>
+                      <input
+                        type="checkbox"
+                        checked={hideForScreenShare}
+                        onChange={(e) => {
+                          const v = e.target.checked;
+                          setHideForScreenShare(v);
+                          localStorage.setItem(HIDE_FOR_SCREEN_SHARE_KEY, v ? "1" : "0");
+                        }}
+                      />
+                      <span>Hide details for screen share</span>
+                    </label>
                   </div>
-                </div>
-                <label className="screen-share-toggle" style={{ marginTop: "var(--space-2)" }}>
-                  <input
-                    type="checkbox"
-                    checked={hideForScreenShare}
-                    onChange={(e) => {
-                      const v = e.target.checked;
-                      setHideForScreenShare(v);
-                      localStorage.setItem(HIDE_FOR_SCREEN_SHARE_KEY, v ? "1" : "0");
-                    }}
-                  />
-                  <span>Hide details for screen share</span>
-                </label>
+                </details>
               </div>
 
               {setupComplete && !showSetupForm ? (
@@ -1374,20 +1785,21 @@ function App() {
 
                   <h2>Live session</h2>
                   <p className="subtitle">
-                    Zoom, Meet, Teams — listen or type. Use Stereo Mix on Windows to capture meeting audio.
+                    Listen with your mic or type. Headset vs speakers: pick the active mic below. For meeting audio, use Stereo Mix / loopback in Windows sound settings.
                   </p>
 
                   <div className="controls">
                     {!isListening ? (
                       <>
-                        <button
-                          className="btn btn-primary"
-                          onClick={startPractice}
-                          disabled={!!(session && usage === null)}
-                          title={session && usage === null ? "Loading..." : undefined}
-                        >
-                          {session && usage === null ? "Loading..." : "Start Listening"}
-                        </button>
+                        <Tooltip label={session && usage === null ? "Loading..." : undefined}>
+                          <button
+                            className="btn btn-primary"
+                            onClick={startPractice}
+                            disabled={!!(session && usage === null)}
+                          >
+                            {session && usage === null ? "Loading..." : "Start Listening"}
+                          </button>
+                        </Tooltip>
                         <div className="controls-type-row">
                           <input
                             type="text"
@@ -1406,20 +1818,21 @@ function App() {
                             }}
                             placeholder="Or type a question and get AI answer"
                           />
-                          <button
-                            type="button"
-                            className="btn btn-primary"
-                            onClick={() => {
-                              const t = typeQuestionInput.trim();
-                              if (t.length >= 3) {
-                                submitTranscript(t);
-                                setTypeQuestionInput("");
-                              }
-                            }}
-                            title="Generate answer from typed question"
-                          >
-                            Get answer
-                          </button>
+                          <Tooltip label="Generate answer from typed question">
+                            <button
+                              type="button"
+                              className="btn btn-primary"
+                              onClick={() => {
+                                const t = typeQuestionInput.trim();
+                                if (t.length >= 3) {
+                                  submitTranscript(t);
+                                  setTypeQuestionInput("");
+                                }
+                              }}
+                            >
+                              Get answer
+                            </button>
+                          </Tooltip>
                         </div>
                       </>
                     ) : (
@@ -1467,15 +1880,16 @@ function App() {
                         <h3>Question heard</h3>
                         <p className="question-text">{question}</p>
                       </div>
-                      <button
-                        type="button"
-                        className="btn btn-ghost btn-icon"
-                        onClick={() => setEditableQuestion(question)}
-                        title="Edit question and get answer again"
-                        aria-label="Edit question"
-                      >
-                        ✏️
-                      </button>
+                      <Tooltip label="Edit question and get answer again">
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-icon"
+                          onClick={() => setEditableQuestion(question)}
+                          aria-label="Edit question"
+                        >
+                          ✏️
+                        </button>
+                      </Tooltip>
                     </div>
                   ) : null}
 

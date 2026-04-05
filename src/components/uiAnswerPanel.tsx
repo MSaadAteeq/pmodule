@@ -5,6 +5,7 @@ import { normalizeQuestionType, classifyQuestionText } from "../assessment/quest
 import { solveFromQuestionText, solveFromScreenshot } from "../assessment/answerGenerator";
 import type { AssessmentResult, CaptureRegionPhysical } from "../assessment/types";
 import { isTauri } from "../lib/tauri";
+import { Tooltip } from "./Tooltip";
 
 export type UiAnswerPanelProps = {
   /** e.g. "Frontend (Technical)" — passed to the model for disambiguation */
@@ -144,26 +145,27 @@ export function UiAnswerPanel({ interviewContext, disabled, hotkeyResult }: UiAn
         <button type="button" className="btn btn-primary" onClick={runCaptureAndSolve} disabled={disabled || loading}>
           {loading ? "Working…" : "Capture & solve"}
         </button>
-        <button
-          type="button"
-          className="btn btn-ghost btn-sm"
-          title="Use primary window scale factor × logical coordinates"
-          onClick={async () => {
-            try {
-              const sf = await getCurrentWindow().scaleFactor();
-              setUseRegion(true);
-              setRx(String(Math.round(100 * sf)));
-              setRy(String(Math.round(100 * sf)));
-              setRw(String(Math.round(800 * sf)));
-              setRh(String(Math.round(600 * sf)));
-            } catch {
-              setError("Could not read scale factor.");
-            }
-          }}
-          disabled={disabled}
-        >
-          Fill example region
-        </button>
+        <Tooltip label="Use primary window scale factor × logical coordinates">
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={async () => {
+              try {
+                const sf = await getCurrentWindow().scaleFactor();
+                setUseRegion(true);
+                setRx(String(Math.round(100 * sf)));
+                setRy(String(Math.round(100 * sf)));
+                setRw(String(Math.round(800 * sf)));
+                setRh(String(Math.round(600 * sf)));
+              } catch {
+                setError("Could not read scale factor.");
+              }
+            }}
+            disabled={disabled}
+          >
+            Fill example region
+          </button>
+        </Tooltip>
       </div>
 
       {error && (

@@ -119,21 +119,23 @@ async fn transcribe_and_answer(
         || low.contains(" code") || low.contains("script") || low.starts_with("write ")
         || low.starts_with("create ") || low.starts_with("implement ");
     let prompt = format!(
-        r#"You are an expert interview coach. The interviewer asked: "{}"
+        r#"You are an expert interview coach.
+
+{}
+The interviewer asked: "{}"
 
 Rules:
-- Infer every detail they want. Understand their tone and intent.
-- If CODE (write/create/implement): Best production code in a markdown code block, then "Key concepts the interviewer may ask about" with bullet points (design, complexity, edge cases).
-- Otherwise: Comprehensive answer, every relevant detail. Bullets OK if clearer.
-- Answer in the SAME language as the question. If the question is in Urdu or Roman Urdu, answer in Roman Urdu (Urdu in Latin script). If in English, answer in English. Always use Roman script so the candidate can read it aloud easily.
-- Write so the candidate can read it aloud naturally: conversational, like a real person speaking. Not robotic or scripted—so the interviewer never suspects anything."#,
+- Infer what they want. If CODE (write/create/implement): production code in a markdown code block, then "Key concepts the interviewer may ask about" with bullets.
+- Otherwise: clear, complete answer; bullets OK.
+- Write so the candidate can read it aloud naturally—not robotic."#,
+        language_turn_directive(&text),
         text
     );
 
     let chat_body = serde_json::json!({
         "model": "gpt-4o-mini",
         "messages": [
-            {"role": "system", "content": "You help a candidate answer interview questions. Be thorough and anticipate follow-ups. For code: best quality + bullet-point headings for follow-up Q&A. Answer in the SAME language as the question: if the question is in Urdu or Roman Urdu, answer in Roman Urdu; if in English, answer in English. Always use Roman script (Latin alphabet). CRITICAL: Phrase every answer so the candidate can read it aloud naturally—conversational, like a real person speaking, not a script. The answer should sound like something they would say themselves so the interviewer does not suspect anything."},
+            {"role": "system", "content": "You help a candidate in interviews. Obey LANGUAGE FOR THIS TURN in the user message exactly: English questions → English answers; Roman Urdu / Urdu questions → Roman Urdu answers. Latin script only. Phrase answers so they sound natural when spoken aloud."},
             {"role": "user", "content": prompt}
         ],
         "max_tokens": if is_code { 1200 } else { 600 },
@@ -180,6 +182,38 @@ struct AnswerPayload {
 struct PreviousQa {
     question: String,
     answer: String,
+}
+
+/// True if the question is likely Urdu in Latin script (Roman Urdu) or Arabic-script Urdu.
+fn is_probably_roman_urdu_question(text: &str) -> bool {
+    if text.chars().any(|c| {
+        matches!(
+            c as u32,
+            0x0600..=0x06FF | 0x0750..=0x077F | 0x08A0..=0x08FF | 0xFB50..=0xFDFF | 0xFE70..=0xFEFF
+        )
+    }) {
+        return true;
+    }
+    let t = text.to_lowercase();
+    const MARKERS: &[&str] = &[
+        "kya ", " kya", "hai ", " hain", " ho ", "hain ", "aap ", " aap", " tum", "tum ", "mera ",
+        "meri ", "kyun", "kyon", "nahi", "nahin", "batao", "bataiye", "kaise", "kab ", "kahan ",
+        "acha ", "theek", " mujhe", " ko ", " se ", " ka ", " ki ", " ne ", "hum ",
+        "apna", "zaroor", "suno", "dekho", "matlab", "lekin", "agar ", "toh ", " bhai", "janab",
+        " kisi", "kabhi", "abhi", "phir", "yeh ", "woh ", "kyaa", "nay ", " naam", "samjhao",
+        "samjha", "suniye",
+    ];
+    let hits = MARKERS.iter().filter(|m| t.contains(**m)).count();
+    let word_count = text.split_whitespace().count();
+    hits >= 2 || (hits == 1 && word_count <= 16)
+}
+
+fn language_turn_directive(question: &str) -> &'static str {
+    if is_probably_roman_urdu_question(question) {
+        "LANGUAGE FOR THIS TURN: Answer entirely in Roman Urdu (Urdu in Latin letters only). Do not answer in English."
+    } else {
+        "LANGUAGE FOR THIS TURN: Answer entirely in clear English. Do not use Roman Urdu. Do not mix Urdu vocabulary unless the question itself was only an Urdu phrase to translate."
+    }
 }
 
 #[tauri::command]
@@ -366,20 +400,22 @@ async fn transcribe_from_file(app_handle: tauri::AppHandle) -> Result<(), String
         || low.contains(" code") || low.contains("script") || low.starts_with("write ")
         || low.starts_with("create ") || low.starts_with("implement ");
     let prompt = format!(
-        r#"You are an expert interview coach. The interviewer asked: "{}"
+        r#"You are an expert interview coach.
+
+{}
+The interviewer asked: "{}"
 
 Rules:
-- Infer every detail they want. Understand their tone and intent.
-- If CODE (write/create/implement): Best production code in a markdown code block, then "Key concepts the interviewer may ask about" with bullet points (design, complexity, edge cases).
-- Otherwise: Comprehensive answer, every relevant detail. Bullets OK if clearer.
-- Answer in the SAME language as the question. If the question is in Urdu or Roman Urdu, answer in Roman Urdu (Urdu in Latin script). If in English, answer in English. Always use Roman script so the candidate can read it aloud easily.
-- Write so the candidate can read it aloud naturally: conversational, like a real person speaking. Not robotic—so the interviewer never suspects anything."#,
+- Infer what they want. If CODE (write/create/implement): production code in a markdown code block, then "Key concepts the interviewer may ask about" with bullets.
+- Otherwise: clear, complete answer; bullets OK.
+- Write so the candidate can read it aloud naturally—not robotic."#,
+        language_turn_directive(&text),
         text
     );
     let chat_body = serde_json::json!({
         "model": "gpt-4o-mini",
         "messages": [
-            {"role": "system", "content": "You help a candidate answer interview questions. Be thorough and anticipate follow-ups. For code: best quality + bullet-point headings for follow-up Q&A. Answer in the SAME language as the question: if the question is in Urdu or Roman Urdu, answer in Roman Urdu; if in English, answer in English. Always use Roman script (Latin alphabet). CRITICAL: Phrase every answer so the candidate can read it aloud naturally—conversational, like a real person speaking, not a script. The answer should sound like something they would say themselves so the interviewer does not suspect anything."},
+            {"role": "system", "content": "You help a candidate in interviews. Obey LANGUAGE FOR THIS TURN in the user message exactly: English questions → English answers; Roman Urdu / Urdu questions → Roman Urdu answers. Latin script only. Phrase answers so they sound natural when spoken aloud."},
             {"role": "user", "content": prompt}
         ],
         "max_tokens": if is_code { 1200 } else { 600 },
@@ -455,7 +491,7 @@ async fn answer_from_transcript(
     let has_document = doc_trimmed.is_some();
     let context_block = match (&interview_context, &doc_trimmed) {
         (Some(ctx), Some(doc)) if !ctx.is_empty() => format!(
-            "The candidate is interviewing for: {}.\n\nReference document (the candidate's notes/resource - USE THIS to answer):\n---\n{}\n---",
+            "The candidate is interviewing for: {}.\n\nRESUME (ground answers here — no invented experience):\n---\n{}\n---",
             ctx.trim(),
             doc
         ),
@@ -464,14 +500,14 @@ async fn answer_from_transcript(
             ctx.trim()
         ),
         (_, Some(doc)) => format!(
-            "Reference document (the candidate's notes/resource - USE THIS to answer):\n---\n{}\n---",
+            "Candidate RESUME (ground every answer in this — experience, skills, dates; do not invent):\n---\n{}\n---",
             doc
         ),
         _ => String::new(),
     };
 
     let document_instruction = if has_document {
-        "When a reference document is provided, you MUST base your answer on it. Use that content and wording; do not substitute a generic answer."
+        "A RESUME is attached. Answer immediately from it for anything about this candidate (roles, stack, impact). Use STAR or short speakable lines tied to resume facts. No invented employers, dates, or skills."
     } else {
         ""
     };
@@ -492,28 +528,17 @@ async fn answer_from_transcript(
     }).filter(|s| !s.is_empty());
 
     let memory_instruction = if has_previous_qa {
-        "\nCONVERSATION MEMORY: You are given previous question(s) and answer(s) above. When the new question refers to \"that\", \"the code\", \"the previous answer\", \"explain it\", \"elaborate\", etc., answer in context of that previous Q&A. Train on and use the previous content to give a coherent follow-up."
+        "\nPREVIOUS EXCHANGE: If they refer to \"that\", \"the code\", \"before\", \"elaborate\", use the prior Q&A."
     } else {
         ""
     };
 
     let system_content = format!(
-        r#"You are an expert interview coach. Your answers must be LIGHTNING-FAST to deliver, comprehensive, and interview-ready.
-
-DEPTH & INTELLIGENCE:
-- Infer EVERY detail the interviewer wants from their question and tone. Read between the lines: if they seem probing, cover edge cases; if they seem time-pressed, be concise but complete.
-- Understand interviewer intent and emotion: curiosity, skepticism, urgency, or "testing depth" — tailor your answer accordingly.
-- Leave nothing out that a senior interviewer would expect. Anticipate follow-up questions and preempt them.
+        r#"Interview coach. You MUST obey the line "LANGUAGE FOR THIS TURN" in the user message exactly (English vs Roman Urdu). Latin script only for both.
 {}{}
-
-CODE QUESTIONS (write/create/implement): Provide the BEST possible production-quality code. Use a markdown code block with language. Then add a heading "Key concepts the interviewer may ask about" and bullet points for: design decisions, time/space complexity, edge cases, alternative approaches. This lets the candidate answer follow-ups easily.
-
-NON-CODE: Clear, comprehensive answer. Include every relevant detail. Can use bullets for clarity. Aim to be thorough but speakable aloud.
-
-LANGUAGE: Answer in the SAME language as the question. If the question is in Urdu or Roman Urdu, answer in Roman Urdu (Urdu in Latin script). If in English, answer in English. Always use Roman script so the candidate can read it aloud easily.
-
-DELIVERY: Phrase every answer so the candidate can read it aloud naturally—conversational, like a real person speaking, not a script or a list. The answer should sound like something they would say themselves so the interviewer does not suspect anything."#,
-        if document_instruction.is_empty() { String::new() } else { format!("\nREFERENCE DOCUMENT: {}\n", document_instruction) },
+Code: markdown code block + short "Key concepts" bullets. Else: concise, speakable answer.
+Sound natural when spoken—not scripted."#,
+        if document_instruction.is_empty() { String::new() } else { format!("\nDoc context: {}\n", document_instruction) },
         memory_instruction
     );
 
@@ -528,14 +553,12 @@ DELIVERY: Phrase every answer so the candidate can read it aloud naturally—con
                 qa
             ));
         }
-        parts.push(format!(
-            "Interviewer asked: \"{}\"\n\nAnswer in the SAME language as the question (if Urdu/Roman Urdu, answer in Roman Urdu; if English, in English). Use any context above when relevant. Cover every aspect they might care about. Phrase the answer so the candidate can read it aloud naturally—conversational, like a real person speaking, so the interviewer does not suspect anything.",
-            text
-        ));
+        parts.push(language_turn_directive(&text).to_string());
+        parts.push(format!("Question: \"{}\"\nAnswer:", text));
         parts.join("\n\n")
     };
 
-    let max_tokens = if is_code_question { 1500 } else { 900 };
+    let max_tokens = if is_code_question { 1000 } else { 520 };
 
     let chat_body = serde_json::json!({
         "model": "gpt-4o-mini",
@@ -544,7 +567,7 @@ DELIVERY: Phrase every answer so the candidate can read it aloud naturally—con
             {"role": "user", "content": user_content}
         ],
         "max_tokens": max_tokens,
-        "temperature": 0.4,
+        "temperature": 0.25,
         "stream": true
     });
 
