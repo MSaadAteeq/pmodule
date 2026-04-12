@@ -24,10 +24,12 @@ export async function fetchOrCreateUsage(token: string): Promise<UserUsage | nul
       sessions_remaining: number;
       plan_expires_at: string | null;
       updated_at: string;
+      account_paused?: boolean;
     }>("get_usage", { token });
     return {
       ...row,
       plan: row.plan as UserUsage["plan"],
+      account_paused: !!row.account_paused,
     };
   } catch {
     return null;
@@ -45,10 +47,12 @@ export async function recordSession(token: string, minutes: number): Promise<Use
       sessions_remaining: number;
       plan_expires_at: string | null;
       updated_at: string;
+      account_paused?: boolean;
     }>("record_session_cmd", { token, minutes });
     return {
       ...row,
       plan: row.plan as UserUsage["plan"],
+      account_paused: !!row.account_paused,
     };
   } catch {
     return null;
@@ -66,10 +70,12 @@ export async function applyCoupon(token: string, code: string): Promise<UserUsag
       sessions_remaining: number;
       plan_expires_at: string | null;
       updated_at: string;
+      account_paused?: boolean;
     }>("apply_coupon", { token, code });
     return {
       ...row,
       plan: row.plan as UserUsage["plan"],
+      account_paused: !!row.account_paused,
     };
   } catch {
     return null;

@@ -264,3 +264,73 @@ pub fn admin_set_openai_key(base_url: &str, token: &str, api_key: &str) -> Resul
     }
     Ok(())
 }
+
+pub fn admin_set_account_paused(
+    base_url: &str,
+    token: &str,
+    user_id: &str,
+    paused: bool,
+) -> Result<(), String> {
+    let c = client()?;
+    let res = c
+        .post(base(base_url, "/admin/user/account-paused"))
+        .header("Authorization", bearer(token))
+        .json(&serde_json::json!({ "userId": user_id, "paused": paused }))
+        .send()
+        .map_err(|e| e.to_string())?;
+    let status = res.status();
+    let body = res.text().map_err(|e| e.to_string())?;
+    if !status.is_success() {
+        let err: serde_json::Value = serde_json::from_str(&body).unwrap_or(serde_json::json!({ "error": body }));
+        return Err(err.get("error").and_then(|v| v.as_str()).unwrap_or("Failed").to_string());
+    }
+    Ok(())
+}
+
+pub fn admin_delete_user(base_url: &str, token: &str, user_id: &str) -> Result<(), String> {
+    let c = client()?;
+    let path = format!("/admin/user/{}", urlencoding::encode(user_id));
+    let res = c
+        .delete(base(base_url, &path))
+        .header("Authorization", bearer(token))
+        .send()
+        .map_err(|e| e.to_string())?;
+    let status = res.status();
+    let body = res.text().map_err(|e| e.to_string())?;
+    if !status.is_success() {
+        let err: serde_json::Value = serde_json::from_str(&body).unwrap_or(serde_json::json!({ "error": body }));
+        return Err(err.get("error").and_then(|v| v.as_str()).unwrap_or("Failed").to_string());
+    }
+    Ok(())
+}
+
+pub fn admin_set_user_plan(
+    base_url: &str,
+    token: &str,
+    user_id: &str,
+    plan: &str,
+    sessions_remaining: Option<i64>,
+    plan_expires_at: Option<String>,
+) -> Result<(), String> {
+    let c = client()?;
+    let body = serde_json::json!({
+        "userId": user_id,
+        "plan": plan,
+        "sessionsRemaining": sessions_remaining,
+        "planExpiresAt": plan_expires_at,
+    });
+    let res = c
+        .post(base(base_url, "/admin/user/plan"))
+        .header("Authorization", bearer(token))
+        .json(&body)
+        .send()
+        .map_err(|e| e.to_string())?;
+    let status = res.status();
+    let body_text = res.text().map_err(|e| e.to_string())?;
+    if !status.is_success() {
+        let err: serde_json::Value =
+            serde_json::from_str(&body_text).unwrap_or(serde_json::json!({ "error": body_text }));
+        return Err(err.get("error").and_then(|v| v.as_str()).unwrap_or("Failed").to_string());
+    }
+    Ok(())
+}

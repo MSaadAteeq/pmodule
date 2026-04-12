@@ -122,6 +122,35 @@ function App() {
   const showTitleBarControls = isTauri();
   const [showAssistantScreen, setShowAssistantScreen] = useState(false);
   const [showCloudModal, setShowCloudModal] = useState(false);
+
+  const handleCheckForUpdates = () => {
+    void (async () => {
+      if (!isTauri()) return;
+      try {
+        const [{ check }, { relaunch }] = await Promise.all([
+          import("@tauri-apps/plugin-updater"),
+          import("@tauri-apps/plugin-process"),
+        ]);
+        const update = await check();
+        if (!update) {
+          window.alert("You're on the latest version.");
+          return;
+        }
+        const notes =
+          typeof (update as { body?: string }).body === "string" && (update as { body: string }).body.trim()
+            ? `\n\n${(update as { body: string }).body.trim()}`
+            : "";
+        const ok = window.confirm(
+          `Version ${update.version} is available.${notes}\n\nInstall and restart now?`
+        );
+        if (!ok) return;
+        await update.downloadAndInstall();
+        await relaunch();
+      } catch (e) {
+        window.alert(e instanceof Error ? e.message : String(e));
+      }
+    })();
+  };
   /** Latest Ctrl+Alt+S screen assessment (listener in App so it works while listening layout is active). */
   const [screenAssessmentHotkey, setScreenAssessmentHotkey] = useState<AssessmentResult | null>(null);
   const [assistantTab, setAssistantTab] = useState<"create" | "past">(() =>
@@ -1026,6 +1055,7 @@ function App() {
                       onPlaceWindow: () => setShowPositionPicker(true),
                       onUpgrade: () => setShowUpgrade(true),
                       onCloud: () => setShowCloudModal(true),
+                      onCheckForUpdates: handleCheckForUpdates,
                       onAdmin: () => setShowAdmin(true),
                       onSignOut: async () => {
                         const token = getStoredToken();
@@ -1125,6 +1155,7 @@ function App() {
     onPlaceWindow: () => setShowPositionPicker(true),
     onUpgrade: () => setShowUpgrade(true),
     onCloud: () => setShowCloudModal(true),
+    onCheckForUpdates: handleCheckForUpdates,
     onAdmin: () => setShowAdmin(true),
     onSignOut: async () => {
       const token = getStoredToken();
@@ -1155,6 +1186,7 @@ function App() {
     onPlaceWindow: () => setShowPositionPicker(true),
     onUpgrade: () => setShowUpgrade(true),
     onCloud: () => setShowCloudModal(true),
+    onCheckForUpdates: handleCheckForUpdates,
     onAdmin: () => setShowAdmin(true),
     onSignOut: async () => {
       const token = getStoredToken();

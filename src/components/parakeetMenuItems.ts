@@ -9,6 +9,7 @@ type Common = {
   onPlaceWindow: () => void;
   onUpgrade: () => void;
   onCloud: () => void;
+  onCheckForUpdates: () => void;
   onAdmin: () => void;
   onSignOut: () => Promise<void>;
 };
@@ -60,6 +61,15 @@ export function homeParakeetMenuItems(
       visible: tauri,
       onSelect: () => {
         p.onCloud();
+        closeMenu();
+      },
+    },
+    {
+      id: "updates",
+      label: "Check for updates",
+      visible: tauri,
+      onSelect: () => {
+        p.onCheckForUpdates();
         closeMenu();
       },
     },
@@ -130,6 +140,15 @@ export function assistantParakeetMenuItems(
       visible: tauri,
       onSelect: () => {
         p.onCloud();
+        closeMenu();
+      },
+    },
+    {
+      id: "updates",
+      label: "Check for updates",
+      visible: tauri,
+      onSelect: () => {
+        p.onCheckForUpdates();
         closeMenu();
       },
     },
@@ -209,6 +228,15 @@ export function floatingParakeetMenuItems(
       visible: tauri,
       onSelect: () => {
         p.onCloud();
+        closeMenu();
+      },
+    },
+    {
+      id: "updates",
+      label: "Check for updates",
+      visible: tauri,
+      onSelect: () => {
+        p.onCheckForUpdates();
         closeMenu();
       },
     },

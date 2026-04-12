@@ -25,6 +25,8 @@
     {
       "identifier": "fs:allow-read-file",
       "allow": [{ "path": "$APPCACHE/*" }]
-    }
+    },
+    "updater:default",
+    "process:default"
   ]
 }

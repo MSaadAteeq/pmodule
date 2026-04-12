@@ -63,6 +63,9 @@ db.exec(`
 try {
   db.prepare("ALTER TABLE user_usage ADD COLUMN last_coupon_code TEXT").run();
 } catch (_) {}
+try {
+  db.prepare("ALTER TABLE user_usage ADD COLUMN account_paused INTEGER NOT NULL DEFAULT 0").run();
+} catch (_) {}
 
 const countUsers = db.prepare("SELECT COUNT(*) AS n FROM users");
 if (countUsers.get().n === 0) {
@@ -102,6 +105,15 @@ function requireSuperadmin(req, res, next) {
   next();
 }
 
+function requireNotPausedUser(req, res, next) {
+  if (req.user.role === "superadmin") return next();
+  const row = db.prepare("SELECT COALESCE(account_paused, 0) AS p FROM user_usage WHERE user_id = ?").get(req.user.id);
+  if (row && row.p) {
+    return res.status(403).json({ error: "Account paused. Contact support." });
+  }
+  next();
+}
+
 // ---- Auth ----
 app.post("/auth/login", (req, res) => {
   const email = (req.body.email || "").trim().toLowerCase();
@@ -112,6 +124,12 @@ app.post("/auth/login", (req, res) => {
   const user = db.prepare("SELECT id, email, password_hash, role FROM users WHERE LOWER(email) = ?").get(email);
   if (!user || !bcrypt.compareSync(password, user.password_hash)) {
     return res.status(401).json({ error: "Invalid email or password" });
+  }
+  if (user.role !== "superadmin") {
+    const st = db.prepare("SELECT COALESCE(account_paused, 0) AS p FROM user_usage WHERE user_id = ?").get(user.id);
+    if (st && st.p) {
+      return res.status(403).json({ error: "Account paused. Contact support." });
+    }
   }
   const token = uuidv4();
   const expires = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
@@ -185,16 +203,16 @@ app.get("/auth/session", requireAuth, (req, res) => {
 app.get("/usage", requireAuth, (req, res) => {
   const row = db
     .prepare(
-      "SELECT id, user_id, minutes_used, sessions_used, plan, sessions_remaining, plan_expires_at, updated_at FROM user_usage WHERE user_id = ?"
+      "SELECT id, user_id, minutes_used, sessions_used, plan, sessions_remaining, plan_expires_at, updated_at, COALESCE(account_paused, 0) AS account_paused FROM user_usage WHERE user_id = ?"
     )
     .get(req.user.id);
   if (!row) {
     return res.status(404).json({ error: "Usage not found" });
   }
-  res.json(row);
+  res.json({ ...row, account_paused: !!row.account_paused });
 });
 
-app.post("/usage/record", requireAuth, (req, res) => {
+app.post("/usage/record", requireAuth, requireNotPausedUser, (req, res) => {
   const minutes = Number(req.body.minutes) || 0;
   const row = db
     .prepare(
@@ -216,13 +234,13 @@ app.post("/usage/record", requireAuth, (req, res) => {
   ).run(newMinutes, newSessionsUsed, newSessionsRemaining, now, req.user.id);
   const updated = db
     .prepare(
-      "SELECT id, user_id, minutes_used, sessions_used, plan, sessions_remaining, plan_expires_at, updated_at FROM user_usage WHERE user_id = ?"
+      "SELECT id, user_id, minutes_used, sessions_used, plan, sessions_remaining, plan_expires_at, updated_at, COALESCE(account_paused, 0) AS account_paused FROM user_usage WHERE user_id = ?"
     )
     .get(req.user.id);
-  res.json(updated);
+  res.json({ ...updated, account_paused: !!updated.account_paused });
 });
 
-app.post("/coupon/apply", requireAuth, (req, res) => {
+app.post("/coupon/apply", requireAuth, requireNotPausedUser, (req, res) => {
   const code = (req.body.code || "").trim().toUpperCase();
   if (!code) {
     return res.status(400).json({ error: "Coupon code required" });
@@ -258,27 +276,31 @@ app.post("/coupon/apply", requireAuth, (req, res) => {
   ).run(newPlan, newSessions, newExpires, coupon.code, nowStr, req.user.id);
   const updated = db
     .prepare(
-      "SELECT id, user_id, minutes_used, sessions_used, plan, sessions_remaining, plan_expires_at, updated_at FROM user_usage WHERE user_id = ?"
+      "SELECT id, user_id, minutes_used, sessions_used, plan, sessions_remaining, plan_expires_at, updated_at, COALESCE(account_paused, 0) AS account_paused FROM user_usage WHERE user_id = ?"
     )
     .get(req.user.id);
-  res.json(updated);
+  res.json({ ...updated, account_paused: !!updated.account_paused });
 });
 
 // ---- Admin ----
 app.get("/admin/users", requireAuth, requireSuperadmin, (req, res) => {
   const rows = db
     .prepare(
-      "SELECT u.id, u.email, COALESCE(uu.plan, 'free'), COALESCE(uu.sessions_remaining, 0), uu.plan_expires_at, uu.last_coupon_code FROM users u LEFT JOIN user_usage uu ON u.id = uu.user_id ORDER BY u.email"
+      `SELECT u.id, u.email, u.role, COALESCE(uu.plan, 'free'), COALESCE(uu.sessions_remaining, 0),
+              uu.plan_expires_at, uu.last_coupon_code, COALESCE(uu.account_paused, 0) AS account_paused
+       FROM users u LEFT JOIN user_usage uu ON u.id = uu.user_id ORDER BY u.email`
     )
     .all();
   res.json(
     rows.map((r) => ({
       id: r.id,
       email: r.email,
+      role: r.role,
       plan: r.plan,
       sessions_remaining: r.sessions_remaining,
       plan_expires_at: r.plan_expires_at,
       last_coupon_code: r.last_coupon_code,
+      account_paused: !!r.account_paused,
     }))
   );
 });
@@ -341,6 +363,64 @@ app.post("/admin/openai-key", requireAuth, requireSuperadmin, (req, res) => {
   db.prepare("INSERT INTO config (key, value) VALUES ('openai_api_key', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(
     apiKey
   );
+  res.json({ ok: true });
+});
+
+app.post("/admin/user/account-paused", requireAuth, requireSuperadmin, (req, res) => {
+  const userId = req.body.userId || req.body.user_id;
+  const paused = !!req.body.paused;
+  if (!userId) return res.status(400).json({ error: "userId required" });
+  const u = db.prepare("SELECT role FROM users WHERE id = ?").get(userId);
+  if (!u) return res.status(404).json({ error: "User not found" });
+  if (u.role === "superadmin") return res.status(400).json({ error: "Cannot pause superadmin" });
+  const now = new Date().toISOString();
+  db.prepare("UPDATE user_usage SET account_paused = ?, updated_at = ? WHERE user_id = ?").run(paused ? 1 : 0, now, userId);
+  if (paused) {
+    db.prepare("DELETE FROM sessions WHERE user_id = ?").run(userId);
+  }
+  res.json({ ok: true });
+});
+
+app.delete("/admin/user/:userId", requireAuth, requireSuperadmin, (req, res) => {
+  const userId = (req.params.userId || "").trim();
+  if (!userId) return res.status(400).json({ error: "userId required" });
+  if (userId === req.user.id) return res.status(400).json({ error: "Cannot delete yourself" });
+  const u = db.prepare("SELECT role FROM users WHERE id = ?").get(userId);
+  if (!u) return res.status(404).json({ error: "User not found" });
+  if (u.role === "superadmin") return res.status(400).json({ error: "Cannot delete superadmin" });
+  db.prepare("DELETE FROM sessions WHERE user_id = ?").run(userId);
+  db.prepare("DELETE FROM user_usage WHERE user_id = ?").run(userId);
+  db.prepare("DELETE FROM users WHERE id = ?").run(userId);
+  res.json({ ok: true });
+});
+
+app.post("/admin/user/plan", requireAuth, requireSuperadmin, (req, res) => {
+  const userId = req.body.userId || req.body.user_id;
+  const plan = (req.body.plan || "").trim().toLowerCase();
+  if (!userId) return res.status(400).json({ error: "userId required" });
+  if (!["free", "pack_3", "pack_10", "unlimited"].includes(plan)) {
+    return res.status(400).json({ error: "Invalid plan" });
+  }
+  const u = db.prepare("SELECT role FROM users WHERE id = ?").get(userId);
+  if (!u) return res.status(404).json({ error: "User not found" });
+  if (u.role === "superadmin") return res.status(400).json({ error: "Use coupons for users; superadmin stays unlimited" });
+  let sessionsRemaining = Number(req.body.sessionsRemaining ?? req.body.sessions_remaining);
+  if (Number.isNaN(sessionsRemaining)) {
+    if (plan === "pack_3") sessionsRemaining = 3;
+    else if (plan === "pack_10") sessionsRemaining = 10;
+    else sessionsRemaining = 0;
+  }
+  let planExpiresAt = req.body.planExpiresAt ?? req.body.plan_expires_at ?? null;
+  if (plan === "unlimited" && !planExpiresAt) {
+    planExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+  }
+  if (plan === "free" || plan === "pack_3" || plan === "pack_10") {
+    planExpiresAt = null;
+  }
+  const now = new Date().toISOString();
+  db.prepare(
+    "UPDATE user_usage SET plan = ?, sessions_remaining = ?, plan_expires_at = ?, updated_at = ? WHERE user_id = ?"
+  ).run(plan, sessionsRemaining, planExpiresAt, now, userId);
   res.json({ ok: true });
 });
 

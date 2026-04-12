@@ -29,6 +29,8 @@ pub struct UserUsageRow {
     #[serde(default)]
     pub last_coupon_code: Option<String>,
     pub updated_at: String,
+    #[serde(default)]
+    pub account_paused: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,10 +46,14 @@ pub struct CouponRow {
 pub struct UserWithUsage {
     pub id: String,
     pub email: String,
+    #[serde(default)]
+    pub role: String,
     pub plan: String,
     pub sessions_remaining: i64,
     pub plan_expires_at: Option<String>,
     pub last_coupon_code: Option<String>,
+    #[serde(default)]
+    pub account_paused: bool,
 }
 
 static DB: Mutex<Option<Connection>> = Mutex::new(None);
@@ -95,6 +101,10 @@ fn open_conn(path: &Path) -> Result<Connection, String> {
 
     // Add last_coupon_code to user_usage if missing (existing DBs)
     let _ = conn.execute("ALTER TABLE user_usage ADD COLUMN last_coupon_code TEXT", []);
+    let _ = conn.execute(
+        "ALTER TABLE user_usage ADD COLUMN account_paused INTEGER NOT NULL DEFAULT 0",
+        [],
+    );
 
     conn.execute_batch(
         "
@@ -145,6 +155,23 @@ fn with_db<T, F: FnOnce(&Connection) -> Result<T, String>>(f: F) -> Result<T, St
     f(conn)
 }
 
+fn usage_guard_paused(conn: &Connection, user_id: &str, role: &str) -> Result<(), String> {
+    if role == "superadmin" {
+        return Ok(());
+    }
+    let paused: i64 = conn
+        .query_row(
+            "SELECT COALESCE(account_paused, 0) FROM user_usage WHERE user_id = ?1",
+            [user_id],
+            |r| r.get(0),
+        )
+        .unwrap_or(0);
+    if paused != 0 {
+        return Err("Account paused. Contact support.".to_string());
+    }
+    Ok(())
+}
+
 pub fn auth_login(email: &str, password: &str) -> Result<(String, User), String> {
     with_db(|conn| {
         let email = email.trim().to_lowercase();
@@ -169,6 +196,18 @@ pub fn auth_login(email: &str, password: &str) -> Result<(String, User), String>
         let valid = verify(password, &hash).map_err(|_| "Invalid email or password".to_string())?;
         if !valid {
             return Err("Invalid email or password".to_string());
+        }
+        if role != "superadmin" {
+            let paused: i64 = conn
+                .query_row(
+                    "SELECT COALESCE(account_paused, 0) FROM user_usage WHERE user_id = ?1",
+                    [&id],
+                    |r| r.get(0),
+                )
+                .unwrap_or(0);
+            if paused != 0 {
+                return Err("Account paused. Contact support.".to_string());
+            }
         }
         let token = uuid::Uuid::new_v4().to_string();
         let expires = Utc::now() + chrono::Duration::days(30);
@@ -268,9 +307,10 @@ pub fn auth_logout(token: &str) -> Result<(), String> {
 pub fn get_usage(token: &str) -> Result<UserUsageRow, String> {
     let user = auth_validate_token(token)?;
     with_db(|conn| {
-            let row = conn
+        usage_guard_paused(conn, &user.id, &user.role)?;
+        let row = conn
             .query_row(
-                "SELECT id, user_id, minutes_used, sessions_used, plan, sessions_remaining, plan_expires_at, last_coupon_code, updated_at FROM user_usage WHERE user_id = ?1",
+                "SELECT id, user_id, minutes_used, sessions_used, plan, sessions_remaining, plan_expires_at, last_coupon_code, updated_at, COALESCE(account_paused, 0) FROM user_usage WHERE user_id = ?1",
                 [&user.id],
                 |r| {
                     Ok(UserUsageRow {
@@ -283,6 +323,7 @@ pub fn get_usage(token: &str) -> Result<UserUsageRow, String> {
                         plan_expires_at: r.get(6)?,
                         last_coupon_code: r.get(7)?,
                         updated_at: r.get(8)?,
+                        account_paused: r.get::<_, i64>(9)? != 0,
                     })
                 },
             )
@@ -294,9 +335,10 @@ pub fn get_usage(token: &str) -> Result<UserUsageRow, String> {
 pub fn record_session(token: &str, minutes: f64) -> Result<UserUsageRow, String> {
     let user = auth_validate_token(token)?;
     with_db(|conn| {
+        usage_guard_paused(conn, &user.id, &user.role)?;
         let row: UserUsageRow = conn
             .query_row(
-                "SELECT id, user_id, minutes_used, sessions_used, plan, sessions_remaining, plan_expires_at, last_coupon_code, updated_at FROM user_usage WHERE user_id = ?1",
+                "SELECT id, user_id, minutes_used, sessions_used, plan, sessions_remaining, plan_expires_at, last_coupon_code, updated_at, COALESCE(account_paused, 0) FROM user_usage WHERE user_id = ?1",
                 [&user.id],
                 |r| {
                     Ok(UserUsageRow {
@@ -309,6 +351,7 @@ pub fn record_session(token: &str, minutes: f64) -> Result<UserUsageRow, String>
                         plan_expires_at: r.get(6)?,
                         last_coupon_code: r.get(7)?,
                         updated_at: r.get(8)?,
+                        account_paused: r.get::<_, i64>(9)? != 0,
                     })
                 },
             )
@@ -344,6 +387,7 @@ pub fn apply_coupon(token: &str, code: &str) -> Result<UserUsageRow, String> {
         return Err("Coupon code required".to_string());
     }
     with_db(|conn| {
+        usage_guard_paused(conn, &user.id, &user.role)?;
         let now = Utc::now();
         let coupon: CouponRow = conn
             .query_row(
@@ -397,7 +441,7 @@ pub fn apply_coupon(token: &str, code: &str) -> Result<UserUsageRow, String> {
 
         let row = conn
             .query_row(
-                "SELECT id, user_id, minutes_used, sessions_used, plan, sessions_remaining, plan_expires_at, last_coupon_code, updated_at FROM user_usage WHERE user_id = ?1",
+                "SELECT id, user_id, minutes_used, sessions_used, plan, sessions_remaining, plan_expires_at, last_coupon_code, updated_at, COALESCE(account_paused, 0) FROM user_usage WHERE user_id = ?1",
                 [&user.id],
                 |r| {
                     Ok(UserUsageRow {
@@ -410,6 +454,7 @@ pub fn apply_coupon(token: &str, code: &str) -> Result<UserUsageRow, String> {
                         plan_expires_at: r.get(6)?,
                         last_coupon_code: r.get(7)?,
                         updated_at: r.get(8)?,
+                        account_paused: r.get::<_, i64>(9)? != 0,
                     })
                 },
             )
@@ -432,16 +477,20 @@ pub fn admin_list_users(token: &str) -> Result<Vec<UserWithUsage>, String> {
     admin_require_superadmin(token)?;
     with_db(|conn| {
         let rows = conn
-            .prepare("SELECT u.id, u.email, COALESCE(uu.plan, 'free'), COALESCE(uu.sessions_remaining, 0), uu.plan_expires_at, uu.last_coupon_code FROM users u LEFT JOIN user_usage uu ON u.id = uu.user_id ORDER BY u.email")
+            .prepare(
+                "SELECT u.id, u.email, u.role, COALESCE(uu.plan, 'free'), COALESCE(uu.sessions_remaining, 0), uu.plan_expires_at, uu.last_coupon_code, COALESCE(uu.account_paused, 0) FROM users u LEFT JOIN user_usage uu ON u.id = uu.user_id ORDER BY u.email",
+            )
             .map_err(|e| e.to_string())?
             .query_map([], |r| {
                 Ok(UserWithUsage {
                     id: r.get(0)?,
                     email: r.get(1)?,
-                    plan: r.get(2)?,
-                    sessions_remaining: r.get(3)?,
-                    plan_expires_at: r.get(4)?,
-                    last_coupon_code: r.get::<_, Option<String>>(5)?,
+                    role: r.get(2)?,
+                    plan: r.get(3)?,
+                    sessions_remaining: r.get(4)?,
+                    plan_expires_at: r.get(5)?,
+                    last_coupon_code: r.get::<_, Option<String>>(6)?,
+                    account_paused: r.get::<_, i64>(7)? != 0,
                 })
             })
             .map_err(|e| e.to_string())?
@@ -538,6 +587,99 @@ pub fn admin_set_openai_key(token: &str, api_key: &str) -> Result<(), String> {
         return Err("API key cannot be empty".to_string());
     }
     set_config("openai_api_key", key)
+}
+
+pub fn admin_set_account_paused(token: &str, user_id: &str, paused: bool) -> Result<(), String> {
+    let admin = admin_require_superadmin(token)?;
+    if admin.id == user_id {
+        return Err("Cannot pause yourself".to_string());
+    }
+    with_db(|conn| {
+        let role: String = conn
+            .query_row("SELECT role FROM users WHERE id = ?1", [user_id], |r| r.get(0))
+            .map_err(|_| "User not found".to_string())?;
+        if role == "superadmin" {
+            return Err("Cannot pause superadmin".to_string());
+        }
+        let now = Utc::now().to_rfc3339();
+        let v = if paused { 1i64 } else { 0i64 };
+        conn.execute(
+            "UPDATE user_usage SET account_paused = ?1, updated_at = ?2 WHERE user_id = ?3",
+            params![v, now, user_id],
+        )
+        .map_err(|e| e.to_string())?;
+        if paused {
+            conn.execute("DELETE FROM sessions WHERE user_id = ?1", [user_id])
+                .map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    })
+}
+
+pub fn admin_delete_user(token: &str, user_id: &str) -> Result<(), String> {
+    let admin = admin_require_superadmin(token)?;
+    if admin.id == user_id {
+        return Err("Cannot delete yourself".to_string());
+    }
+    with_db(|conn| {
+        let role: String = conn
+            .query_row("SELECT role FROM users WHERE id = ?1", [user_id], |r| r.get(0))
+            .map_err(|_| "User not found".to_string())?;
+        if role == "superadmin" {
+            return Err("Cannot delete superadmin".to_string());
+        }
+        conn.execute("DELETE FROM sessions WHERE user_id = ?1", [user_id])
+            .map_err(|e| e.to_string())?;
+        conn.execute("DELETE FROM user_usage WHERE user_id = ?1", [user_id])
+            .map_err(|e| e.to_string())?;
+        conn.execute("DELETE FROM users WHERE id = ?1", [user_id])
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    })
+}
+
+pub fn admin_set_user_plan(
+    token: &str,
+    user_id: &str,
+    plan: &str,
+    sessions_remaining: Option<i64>,
+    plan_expires_in: Option<String>,
+) -> Result<(), String> {
+    admin_require_superadmin(token)?;
+    let plan = plan.trim().to_lowercase();
+    if !matches!(plan.as_str(), "free" | "pack_3" | "pack_10" | "unlimited") {
+        return Err("Invalid plan".to_string());
+    }
+    let sessions_remaining = match sessions_remaining {
+        Some(s) => s,
+        None => match plan.as_str() {
+            "pack_3" => 3,
+            "pack_10" => 10,
+            _ => 0,
+        },
+    };
+    let plan_expires_at = if plan == "unlimited" {
+        plan_expires_in.or_else(|| {
+            Some((Utc::now() + chrono::Duration::days(30)).to_rfc3339())
+        })
+    } else {
+        None
+    };
+    with_db(|conn| {
+        let role: String = conn
+            .query_row("SELECT role FROM users WHERE id = ?1", [user_id], |r| r.get(0))
+            .map_err(|_| "User not found".to_string())?;
+        if role == "superadmin" {
+            return Err("Cannot change superadmin plan".to_string());
+        }
+        let now = Utc::now().to_rfc3339();
+        conn.execute(
+            "UPDATE user_usage SET plan = ?1, sessions_remaining = ?2, plan_expires_at = ?3, updated_at = ?4 WHERE user_id = ?5",
+            params![plan, sessions_remaining, plan_expires_at, now, user_id],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(())
+    })
 }
 
 pub fn admin_list_coupons(token: &str) -> Result<Vec<CouponRow>, String> {

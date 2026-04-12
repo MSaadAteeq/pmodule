@@ -11,12 +11,18 @@ export type UserUsage = {
   sessions_remaining: number;
   plan_expires_at: string | null;
   updated_at: string;
+  /** True when superadmin paused this account (cloud or local). */
+  account_paused?: boolean;
 };
 
 const FREE_MINUTES = 30;
 
 export function canStartSession(usage: UserUsage | null): { allowed: boolean; reason?: string } {
   if (!usage) return { allowed: false, reason: "Loading usage..." };
+
+  if (usage.account_paused) {
+    return { allowed: false, reason: "Account paused. Contact support." };
+  }
 
   if (usage.plan === "free") {
     if (usage.minutes_used >= FREE_MINUTES)

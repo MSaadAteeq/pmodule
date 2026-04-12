@@ -797,6 +797,71 @@ fn admin_set_openai_key(args: AdminSetOpenaiKeyArgs) -> Result<(), String> {
     }
 }
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AdminSetAccountPausedArgs {
+    token: String,
+    user_id: String,
+    paused: bool,
+}
+
+#[tauri::command]
+fn admin_set_account_paused(args: AdminSetAccountPausedArgs) -> Result<(), String> {
+    if let Some(ref base) = cloud_base() {
+        cloud::admin_set_account_paused(base, &args.token, &args.user_id, args.paused)
+    } else {
+        db::admin_set_account_paused(&args.token, &args.user_id, args.paused)
+    }
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AdminDeleteUserArgs {
+    token: String,
+    user_id: String,
+}
+
+#[tauri::command]
+fn admin_delete_user(args: AdminDeleteUserArgs) -> Result<(), String> {
+    if let Some(ref base) = cloud_base() {
+        cloud::admin_delete_user(base, &args.token, &args.user_id)
+    } else {
+        db::admin_delete_user(&args.token, &args.user_id)
+    }
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AdminSetUserPlanArgs {
+    token: String,
+    user_id: String,
+    plan: String,
+    sessions_remaining: Option<i64>,
+    plan_expires_at: Option<String>,
+}
+
+#[tauri::command]
+fn admin_set_user_plan(args: AdminSetUserPlanArgs) -> Result<(), String> {
+    if let Some(ref base) = cloud_base() {
+        cloud::admin_set_user_plan(
+            base,
+            &args.token,
+            &args.user_id,
+            &args.plan,
+            args.sessions_remaining,
+            args.plan_expires_at,
+        )
+    } else {
+        db::admin_set_user_plan(
+            &args.token,
+            &args.user_id,
+            &args.plan,
+            args.sessions_remaining,
+            args.plan_expires_at,
+        )
+    }
+}
+
 #[tauri::command]
 fn get_cloud_url() -> Option<String> {
     db::get_config("cloud_base_url").filter(|s| !s.trim().is_empty())
@@ -846,6 +911,8 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             transcribe_and_answer,
             transcribe_from_file,
@@ -865,6 +932,9 @@ pub fn run() {
             admin_remove_coupon,
             admin_list_coupons,
             admin_set_openai_key,
+            admin_set_account_paused,
+            admin_delete_user,
+            admin_set_user_plan,
             get_cloud_url,
             set_cloud_url,
             capture_screen_png_base64,
