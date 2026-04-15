@@ -244,6 +244,15 @@ async fn assessment_analyze_image(
 }
 
 #[tauri::command]
+async fn assessment_analyze_images(
+    images_base64_png: Vec<String>,
+    interview_context: Option<String>,
+) -> Result<assessment::AssessmentResult, String> {
+    let key = db::get_openai_api_key()?;
+    assessment::analyze_images_base64(&key, &images_base64_png, interview_context.as_deref()).await
+}
+
+#[tauri::command]
 async fn assessment_analyze_text(
     text: String,
     interview_context: Option<String>,
@@ -939,6 +948,7 @@ pub fn run() {
             set_cloud_url,
             capture_screen_png_base64,
             assessment_analyze_image,
+            assessment_analyze_images,
             assessment_analyze_text,
         ])
         .run(tauri::generate_context!())

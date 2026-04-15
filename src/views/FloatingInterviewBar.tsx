@@ -21,6 +21,7 @@ export type FloatingInterviewBarProps = {
   stopPractice: () => void | Promise<void>;
   floatingAiAnswer: () => void | Promise<void>;
   floatingAnalyzeScreen: () => void | Promise<void>;
+  floatingAnalyzeScreenDeep: () => void | Promise<void>;
   formatMmSs: (startedAt: number) => string;
   sessionStartTimeRef: MutableRefObject<number>;
   showPaMenu: boolean;
@@ -58,6 +59,7 @@ export function FloatingInterviewBar(props: FloatingInterviewBarProps) {
     stopPractice,
     floatingAiAnswer,
     floatingAnalyzeScreen,
+    floatingAnalyzeScreenDeep,
     formatMmSs,
     sessionStartTimeRef,
     showPaMenu,
@@ -124,14 +126,24 @@ export function FloatingInterviewBar(props: FloatingInterviewBarProps) {
               ✨ AI Answer
             </button>
           </Tooltip>
-          <Tooltip label="Capture screen and analyze (same as Ctrl+Alt+S)">
+          <Tooltip label="Single full-screen capture (Ctrl+Alt+S)">
             <button
               type="button"
               className="fn-text-btn"
               disabled={floatingAnalyzeBusy}
               onClick={() => void floatingAnalyzeScreen()}
             >
-              {floatingAnalyzeBusy ? "…" : "🖥 Analyze Screen"}
+              {floatingAnalyzeBusy ? "…" : "🖥 Screen"}
+            </button>
+          </Tooltip>
+          <Tooltip label="3 captures ~3s apart — scroll the coding problem so I/O and constraints are included">
+            <button
+              type="button"
+              className="fn-text-btn"
+              disabled={floatingAnalyzeBusy}
+              onClick={() => void floatingAnalyzeScreenDeep()}
+            >
+              {floatingAnalyzeBusy ? "…" : "📜 Full problem"}
             </button>
           </Tooltip>
           <Tooltip label="Chat and history">

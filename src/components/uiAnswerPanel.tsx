@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { capturePrimaryScreenPngBase64 } from "../assessment/screenCapture";
 import { normalizeQuestionType, classifyQuestionText } from "../assessment/questionClassifier";
-import { solveFromQuestionText, solveFromScreenshot } from "../assessment/answerGenerator";
+import { collectScrollStitchCaptures } from "../assessment/multiScreenCapture";
+import { solveFromQuestionText, solveFromScreenshot, solveFromScreenshots } from "../assessment/answerGenerator";
 import type { AssessmentResult, CaptureRegionPhysical } from "../assessment/types";
 import { isTauri } from "../lib/tauri";
 import { Tooltip } from "./Tooltip";
@@ -34,6 +35,7 @@ export function UiAnswerPanel({ interviewContext, disabled, hotkeyResult }: UiAn
   const [rw, setRw] = useState("");
   const [rh, setRh] = useState("");
   const [editedQuestion, setEditedQuestion] = useState("");
+  const [captureHint, setCaptureHint] = useState("");
 
   const ctx = interviewContext?.trim() || undefined;
 
@@ -63,6 +65,38 @@ export function UiAnswerPanel({ interviewContext, disabled, hotkeyResult }: UiAn
       setError(String(e));
     } finally {
       setLoading(false);
+    }
+  }, [ctx, disabled, rh, rw, rx, ry, useRegion]);
+
+  const runMultiCaptureAndSolve = useCallback(async () => {
+    if (!isTauri() || disabled) return;
+    setError("");
+    setCaptureHint("");
+    setLoading(true);
+    try {
+      let region: CaptureRegionPhysical | null = null;
+      if (useRegion) {
+        const x = parseInt(rx, 10);
+        const y = parseInt(ry, 10);
+        const width = parseInt(rw, 10);
+        const height = parseInt(rh, 10);
+        if ([x, y, width, height].some((n) => Number.isNaN(n)) || width <= 0 || height <= 0) {
+          setError("Region must be valid integers: x, y, width, height (physical pixels, width/height > 0).");
+          setLoading(false);
+          return;
+        }
+        region = { x, y, width, height };
+      }
+      const shots = await collectScrollStitchCaptures((m) => setCaptureHint(m), region);
+      setCaptureHint("Analyzing all captures…");
+      const out = await solveFromScreenshots(shots, ctx);
+      setResult(out);
+      setEditedQuestion(out.extractedQuestion ?? "");
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+      setCaptureHint("");
     }
   }, [ctx, disabled, rh, rw, rx, ry, useRegion]);
 
@@ -124,8 +158,8 @@ export function UiAnswerPanel({ interviewContext, disabled, hotkeyResult }: UiAn
         prompts.
       </p>
       <p className="audio-tip">
-        <strong>Ctrl+Alt+S</strong> — capture full screen, analyze, show result here.{" "}
-        <strong>Ctrl+Alt+A</strong> — focus this window (same as before).
+        <strong>Ctrl+Alt+S</strong> — single full-screen capture. Use <strong>Capture full problem (scroll)</strong> for long
+        coding questions (scroll between shots). <strong>Ctrl+Alt+A</strong> — focus this window.
       </p>
 
       <label className="screen-share-toggle">
@@ -144,6 +178,9 @@ export function UiAnswerPanel({ interviewContext, disabled, hotkeyResult }: UiAn
       <div className="assessment-actions">
         <button type="button" className="btn btn-primary" onClick={runCaptureAndSolve} disabled={disabled || loading}>
           {loading ? "Working…" : "Capture & solve"}
+        </button>
+        <button type="button" className="btn btn-primary" onClick={runMultiCaptureAndSolve} disabled={disabled || loading}>
+          {loading ? "…" : "Capture full problem (scroll)"}
         </button>
         <Tooltip label="Use primary window scale factor × logical coordinates">
           <button
@@ -167,6 +204,12 @@ export function UiAnswerPanel({ interviewContext, disabled, hotkeyResult }: UiAn
           </button>
         </Tooltip>
       </div>
+
+      {captureHint ? (
+        <p className="auth-message" style={{ marginTop: "0.5rem" }}>
+          {captureHint}
+        </p>
+      ) : null}
 
       {error && (
         <div className="error-box" style={{ marginTop: "0.75rem" }}>

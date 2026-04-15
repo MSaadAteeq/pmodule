@@ -36,7 +36,8 @@ import { GlobalAiAssistant } from "./components/GlobalAiAssistant";
 import { HomeView } from "./views/HomeView";
 import { FloatingInterviewBar } from "./views/FloatingInterviewBar";
 import { capturePrimaryScreenPngBase64 } from "./assessment/screenCapture";
-import { solveFromScreenshot } from "./assessment/answerGenerator";
+import { collectScrollStitchCaptures } from "./assessment/multiScreenCapture";
+import { solveFromScreenshot, solveFromScreenshots } from "./assessment/answerGenerator";
 import type { AssessmentResult } from "./assessment/types";
 import "./App.css";
 
@@ -53,7 +54,9 @@ const RESUME_TEXT_STORAGE_KEY = "parakeet-resume-text-v1";
 const RESUME_NAME_STORAGE_KEY = "parakeet-resume-name-v1";
 const RESUME_MAX_STORAGE_CHARS = 400_000;
 /** No new speech for this long → treat question as complete and send (with Auto Generate on). */
-const SPEECH_SILENCE_SUBMIT_MS = 1250;
+const SPEECH_SILENCE_SUBMIT_MS = 900;
+/** After a finalized speech segment with no interim text, submit sooner so answers feel snappy. */
+const SPEECH_AFTER_FINAL_MS = 420;
 
 /** Tauri `innerSize()` is physical pixels; `LogicalSize` expects logical (CSS) pixels. */
 async function tauriLogicalInnerSize(): Promise<{ width: number; height: number }> {
@@ -564,9 +567,10 @@ function App() {
         }
       };
 
-      const scheduleSilenceAutoSubmit = () => {
+      const scheduleSilenceAutoSubmit = (preferQuickAfterFinal: boolean) => {
         if (!autoGenerateAIRef.current) return;
         clearSilenceTimer();
+        const delay = preferQuickAfterFinal ? SPEECH_AFTER_FINAL_MS : SPEECH_SILENCE_SUBMIT_MS;
         silenceSubmitTimerRef.current = window.setTimeout(() => {
           silenceSubmitTimerRef.current = null;
           if (!isListeningRef.current || stopRequestedRef.current) return;
@@ -579,7 +583,7 @@ function App() {
           transcriptBufferRef.current = "";
           setFloatingChatOpen(true);
           void submitTranscript(t);
-        }, SPEECH_SILENCE_SUBMIT_MS);
+        }, delay);
       };
 
       recognition.onresult = (e: SpeechRecognitionEvent) => {
@@ -600,7 +604,8 @@ function App() {
         lastLiveUtteranceRef.current = combined;
         setQuestion(combined);
         if (combined.trim().length >= 2) {
-          scheduleSilenceAutoSubmit();
+          const preferQuick = it.length === 0 && ft.length >= 4;
+          scheduleSilenceAutoSubmit(preferQuick);
         }
       };
       recognition.onerror = (e: SpeechRecognitionErrorEvent) => {
@@ -648,7 +653,7 @@ function App() {
       tauriInvoke("set_listening", { listening: true });
       setStatus(
         autoGenerateAI
-          ? "Listening… Pause briefly after your question — answer is sent automatically."
+          ? "Listening… Pause briefly after your question — answer is sent automatically (faster once speech finalizes)."
           : "Listening… Press Stop (or AI Answer) when you finish your question."
       );
     } catch (err) {
@@ -712,6 +717,27 @@ function App() {
       const b64 = await capturePrimaryScreenPngBase64(null);
       const ctx = buildInterviewContextForModel();
       const out = await solveFromScreenshot(b64, ctx || undefined);
+      setScreenAssessmentHotkey(out);
+      setFloatingChatOpen(true);
+      setStatus("");
+    } catch (e) {
+      setError(String(e));
+      setStatus("");
+    } finally {
+      setFloatingAnalyzeBusy(false);
+    }
+  };
+
+  /** Several captures while you scroll — best for long coding prompts (I/O samples, constraints). */
+  const floatingAnalyzeScreenDeep = async () => {
+    if (!isTauri() || floatingAnalyzeBusy) return;
+    setFloatingAnalyzeBusy(true);
+    setError("");
+    try {
+      const ctx = buildInterviewContextForModel();
+      const shots = await collectScrollStitchCaptures((msg) => setStatus(msg), null);
+      setStatus("Analyzing all captures (vision)…");
+      const out = await solveFromScreenshots(shots, ctx || undefined);
       setScreenAssessmentHotkey(out);
       setFloatingChatOpen(true);
       setStatus("");
@@ -1123,6 +1149,7 @@ function App() {
           contextLabel="Home"
           statusLine={status || undefined}
           onAnalyzeScreen={() => void floatingAnalyzeScreen()}
+          onAnalyzeScreenDeep={() => void floatingAnalyzeScreenDeep()}
           analyzeBusy={floatingAnalyzeBusy}
           onOpenFullAssistant={() => {
             setShowAssistantScreen(true);
@@ -1221,6 +1248,7 @@ function App() {
           stopPractice={stopPractice}
           floatingAiAnswer={floatingAiAnswer}
           floatingAnalyzeScreen={floatingAnalyzeScreen}
+          floatingAnalyzeScreenDeep={floatingAnalyzeScreenDeep}
           formatMmSs={formatMmSs}
           sessionStartTimeRef={sessionStartTimeRef}
           showPaMenu={showPaMenu}
@@ -1970,6 +1998,7 @@ function App() {
         contextLabel={globalAiContextLabel}
         statusLine={status || undefined}
         onAnalyzeScreen={() => void floatingAnalyzeScreen()}
+        onAnalyzeScreenDeep={() => void floatingAnalyzeScreenDeep()}
         analyzeBusy={floatingAnalyzeBusy}
         onOpenFullAssistant={() => {
           exitFloatingBarToFullAssistant();

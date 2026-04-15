@@ -10,6 +10,8 @@ export type GlobalAiAssistantProps = {
   contextLabel: string;
   statusLine?: string;
   onAnalyzeScreen: () => void;
+  /** Multi-capture while user scrolls (coding pages with long I/O). */
+  onAnalyzeScreenDeep?: () => void;
   analyzeBusy: boolean;
   onOpenFullAssistant: () => void;
   onFocusListening?: () => void;
@@ -24,6 +26,7 @@ export function GlobalAiAssistant({
   contextLabel,
   statusLine,
   onAnalyzeScreen,
+  onAnalyzeScreenDeep,
   analyzeBusy,
   onOpenFullAssistant,
   onFocusListening,
@@ -84,6 +87,17 @@ export function GlobalAiAssistant({
             >
               {analyzeBusy ? "Analyzing…" : "Analyze screen"}
             </button>
+            {onAnalyzeScreenDeep ? (
+              <button
+                type="button"
+                className="gai-action-btn"
+                onClick={onAnalyzeScreenDeep}
+                disabled={analyzeBusy}
+                title="Takes 3 screenshots ~3s apart — scroll the problem between shots"
+              >
+                {analyzeBusy ? "…" : "Full problem (scroll)"}
+              </button>
+            ) : null}
             {onFocusListening ? (
               <button type="button" className="gai-action-btn" onClick={onFocusListening}>
                 Jump to listen / type
@@ -99,9 +113,12 @@ export function GlobalAiAssistant({
           <ol className="gai-steps">
             <li>Create a session with your role and language.</li>
             <li>Start listening or type the interviewer&apos;s question.</li>
-            <li>Read the suggested answer naturally — or use Analyze screen for on-screen questions.</li>
             <li>
-              Shortcuts: <kbd>Ctrl+Alt+A</kbd> focus app · <kbd>Ctrl+Alt+S</kbd> screen solve
+              Read answers naturally — use <strong>Analyze screen</strong> for what&apos;s visible, or{" "}
+              <strong>Full problem (scroll)</strong> for long coding prompts (scroll between captures).
+            </li>
+            <li>
+              Shortcuts: <kbd>Ctrl+Alt+A</kbd> focus app · <kbd>Ctrl+Alt+S</kbd> single screen capture
             </li>
           </ol>
         </section>

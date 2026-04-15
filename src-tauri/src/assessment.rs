@@ -17,26 +17,56 @@ pub struct AssessmentResult {
     pub brief_explanation: String,
 }
 
-const VISION_SYSTEM: &str = r#"You help interpret on-screen questions: screenshots, diagrams, or pasted text from technical screenings and practice tests.
+const VISION_MODEL: &str = "gpt-4o";
+
+const VISION_SYSTEM: &str = r#"You interpret on-screen interview and assessment content: screenshots, IDE windows, LeetCode/HackerRank-style pages, MCQs, and pasted text.
 Always respond with a single JSON object only (no markdown fences).
 Use these exact key names: questionType, extractedQuestion, correctAnswer, briefExplanation.
 
 questionType must be one of: mcq, fill_blank, true_false, logic, image_puzzle, code_output, short_programming, unknown.
 
-extractedQuestion: full readable stem; include all multiple-choice options as labeled in the image.
-correctAnswer: what the user should enter or select (e.g. option letter + text, fill-in text, True/False, program output, or short code).
-briefExplanation: 1–3 sentences; omit only if nothing useful to add.
+extractedQuestion:
+- For non-coding: full readable stem; include every multiple-choice option exactly as labeled.
+- For coding challenges: reproduce the COMPLETE problem as you see it — title, narrative, ALL constraints, time/memory limits, input/output format, and EVERY sample input/output block. If the language selector or editor tab shows a language, state it here too. Do not skip examples.
 
-For code-output questions, mentally trace execution and give the exact output.
-For image or pattern puzzles, use the visual content."#;
+correctAnswer:
+- For non-coding: what to enter or select (option letter + text, fill-in, True/False, traced program output, etc.).
+- For coding: a complete, runnable solution in the SAME programming language shown in the UI (dropdown, tab, or editor). Match that language exactly (Python, Java, C++, JavaScript, TypeScript, Go, etc.). If the language is ambiguous, pick the most likely from the editor and say your assumption in briefExplanation.
+
+briefExplanation: 1–4 sentences; for coding, mention I/O format or edge cases you relied on. If something critical is missing or unreadable in the image(s), say so here.
+
+Rules:
+- Read small text carefully (constraints, examples, boilerplate).
+- For code-output/trace questions, execute mentally and give exact output.
+- Never invent sample I/O; only use what appears on screen.
+- If multiple images are provided, they are scroll positions of the SAME page — merge into one problem; do not treat as separate questions."#;
+
+const VISION_MULTI_NOTE: &str = "Multiple images: same browser window after scrolling. Merge all visible text into one problem before answering.";
 
 pub async fn analyze_image_base64(
     api_key: &str,
     png_base64: &str,
     interview_context: Option<&str>,
 ) -> Result<AssessmentResult, String> {
+    let one = vec![png_base64.to_string()];
+    analyze_images_base64(api_key, &one, interview_context).await
+}
+
+pub async fn analyze_images_base64(
+    api_key: &str,
+    png_base64_list: &[String],
+    interview_context: Option<&str>,
+) -> Result<AssessmentResult, String> {
+    if png_base64_list.is_empty() {
+        return Err("At least one screenshot is required".to_string());
+    }
+    if png_base64_list.len() > 6 {
+        return Err("Too many images (max 6)".to_string());
+    }
+
+    let timeout_secs: u64 = if png_base64_list.len() > 1 { 180 } else { 120 };
     let client = Client::builder()
-        .timeout(std::time::Duration::from_secs(120))
+        .timeout(std::time::Duration::from_secs(timeout_secs))
         .build()
         .map_err(|e| e.to_string())?;
 
@@ -46,30 +76,43 @@ pub async fn analyze_image_base64(
         .map(|s| format!("Context from user (role/topic): {}\n\n", s))
         .unwrap_or_default();
 
+    let multi = if png_base64_list.len() > 1 {
+        format!("\n\n{}", VISION_MULTI_NOTE)
+    } else {
+        String::new()
+    };
+
     let user_text = format!(
-        "{}Analyze the attached screenshot and fill the JSON fields.",
-        ctx
+        "{}Analyze the attached screenshot(s) and fill the JSON fields.{}",
+        ctx, multi
     );
 
+    let mut content: Vec<serde_json::Value> = vec![serde_json::json!({
+        "type": "text",
+        "text": user_text
+    })];
+
+    for b64 in png_base64_list {
+        content.push(serde_json::json!({
+            "type": "image_url",
+            "image_url": {
+                "url": format!("data:image/png;base64,{}", b64.trim()),
+                "detail": "high"
+            }
+        }));
+    }
+
     let body = serde_json::json!({
-        "model": "gpt-4o-mini",
+        "model": VISION_MODEL,
         "messages": [
             { "role": "system", "content": VISION_SYSTEM },
             {
                 "role": "user",
-                "content": [
-                    { "type": "text", "text": user_text },
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": format!("data:image/png;base64,{}", png_base64.trim())
-                        }
-                    }
-                ]
+                "content": content
             }
         ],
-        "max_tokens": 1600,
-        "temperature": 0.15,
+        "max_tokens": 4096,
+        "temperature": 0.1,
         "response_format": { "type": "json_object" }
     });
 
@@ -123,8 +166,8 @@ pub async fn analyze_question_text(
             { "role": "system", "content": VISION_SYSTEM },
             { "role": "user", "content": user_text }
         ],
-        "max_tokens": 1600,
-        "temperature": 0.15,
+        "max_tokens": 4096,
+        "temperature": 0.1,
         "response_format": { "type": "json_object" }
     });
 

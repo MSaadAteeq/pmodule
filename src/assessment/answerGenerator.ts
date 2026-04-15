@@ -24,3 +24,17 @@ export async function solveFromQuestionText(
     interviewContext: interviewContext?.trim() || undefined,
   });
 }
+
+/** Multiple screenshots (e.g. after scrolling) analyzed as one combined problem. */
+export async function solveFromScreenshots(
+  imagesBase64Png: string[],
+  interviewContext?: string
+): Promise<AssessmentResult> {
+  if (imagesBase64Png.length === 0) {
+    throw new Error("At least one screenshot is required.");
+  }
+  return tauriInvoke<AssessmentResult>("assessment_analyze_images", {
+    imagesBase64Png,
+    interviewContext: interviewContext?.trim() || undefined,
+  });
+}
