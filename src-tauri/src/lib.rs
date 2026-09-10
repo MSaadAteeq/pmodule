@@ -216,6 +216,32 @@ fn language_turn_directive(question: &str) -> &'static str {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::{is_probably_roman_urdu_question, language_turn_directive};
+
+    #[test]
+    fn detects_roman_urdu_markers() {
+        let q = "kya aap mujhe bata sakte hain kaise yeh kaam karta hai";
+        assert!(is_probably_roman_urdu_question(q));
+        assert!(language_turn_directive(q).contains("Roman Urdu"));
+    }
+
+    #[test]
+    fn keeps_english_questions_in_english() {
+        let q = "Can you explain the difference between REST and GraphQL?";
+        assert!(!is_probably_roman_urdu_question(q));
+        assert!(language_turn_directive(q).contains("clear English"));
+    }
+
+    #[test]
+    fn detects_urdu_script_questions() {
+        let q = "یہ فنکشن کیسے کام کرتا ہے؟";
+        assert!(is_probably_roman_urdu_question(q));
+        assert!(language_turn_directive(q).contains("Roman Urdu"));
+    }
+}
+
 #[tauri::command]
 fn set_listening(listening: bool) {
     LISTENING.store(listening, Ordering::SeqCst);
@@ -901,7 +927,12 @@ pub fn run() {
         })
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
-                .with_shortcuts(["Control+Alt+KeyA", "Control+Alt+KeyS"])
+                .with_shortcuts([
+                    "Control+Alt+KeyA",
+                    "Control+Alt+KeyS",
+                    "PageUp",
+                    "PageDown",
+                ])
                 .expect("failed to register shortcut")
                 .with_handler(|app, shortcut, event: ShortcutEvent| {
                     if event.state == ShortcutState::Pressed {
@@ -911,6 +942,11 @@ pub fn run() {
                             let _ = w.unminimize();
                             let _ = w.set_focus();
                             let _ = w.emit("parakeet_activate", ());
+                            if shortcut.key == Code::PageUp {
+                                let _ = w.emit("parakeet_start_listening", ());
+                            } else if shortcut.key == Code::PageDown {
+                                let _ = w.emit("parakeet_stop_listening", ());
+                            }
                         }
                         if shortcut.key == Code::KeyS {
                             run_screen_assessment_hotkey(app.clone());

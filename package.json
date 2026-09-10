@@ -8,6 +8,8 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
+    "test:hard-mode": "node scripts/reliability-hard-mode.mjs",
+    "test:certify-interview": "node scripts/interview-certification.mjs",
     "icon": "tauri icon",
     "create-icon": "node scripts/create-icon.js",
     "setup-icons": "npm run create-icon && npm run tauri icon app-icon.png"

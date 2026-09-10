@@ -1,0 +1,89 @@
+{
+  "total_runtime_ms": 36489,
+  "total_requests": 816,
+  "total_errors": 15,
+  "summary": {
+    "/auth/login": {
+      "count": 1,
+      "avg_ms": 325,
+      "p95_ms": 325,
+      "max_ms": 325
+    },
+    "/auth/signup": {
+      "count": 29,
+      "avg_ms": 1113,
+      "p95_ms": 2523,
+      "max_ms": 2627
+    },
+    "/usage": {
+      "count": 187,
+      "avg_ms": 247,
+      "p95_ms": 318,
+      "max_ms": 335
+    },
+    "/auth/session": {
+      "count": 20,
+      "avg_ms": 1395,
+      "p95_ms": 2490,
+      "max_ms": 2490
+    },
+    "/usage/record": {
+      "count": 579,
+      "avg_ms": 239,
+      "p95_ms": 321,
+      "max_ms": 335
+    }
+  },
+  "limits": {
+    "maxErrorRate": 0.03,
+    "maxUsageRecordP95Ms": 900,
+    "maxUsageRecordMaxMs": 1800,
+    "maxUsageP95Ms": 2500,
+    "maxSignupP95Ms": 9000,
+    "maxSessionP95Ms": 7000
+  },
+  "checks": [
+    {
+      "name": "request error rate",
+      "pass": true,
+      "detail": "1.84% (limit 3.00%)"
+    },
+    {
+      "name": "usage/record p95 latency",
+      "pass": true,
+      "detail": "321ms (limit 900ms)"
+    },
+    {
+      "name": "usage/record max latency",
+      "pass": true,
+      "detail": "335ms (limit 1800ms)"
+    },
+    {
+      "name": "usage p95 latency",
+      "pass": true,
+      "detail": "318ms (limit 2500ms)"
+    },
+    {
+      "name": "signup p95 latency",
+      "pass": true,
+      "detail": "2523ms (limit 9000ms)"
+    },
+    {
+      "name": "session p95 latency",
+      "pass": true,
+      "detail": "2490ms (limit 7000ms)"
+    }
+  ],
+  "error_samples": [
+    "[load] hardmode_1776773028032_0@test.local: Error: usage/record failed 503",
+    "[load] hardmode_1776773028032_13@test.local: Error: usage/record failed 503",
+    "[soak] /usage status 503",
+    "[soak] /usage/record status 503",
+    "[soak] /usage/record status 503",
+    "[soak] /usage/record status 503",
+    "[soak] /usage status 503",
+    "[soak] /usage/record status 503",
+    "[soak] /usage/record status 503",
+    "[soak] /usage/record status 503"
+  ]
+}

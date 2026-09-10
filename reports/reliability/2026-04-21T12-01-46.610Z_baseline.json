@@ -1,0 +1,78 @@
+{
+  "total_runtime_ms": 25777,
+  "total_requests": 1530,
+  "total_errors": 0,
+  "summary": {
+    "/auth/login": {
+      "count": 1,
+      "avg_ms": 89,
+      "p95_ms": 89,
+      "max_ms": 89
+    },
+    "/auth/signup": {
+      "count": 39,
+      "avg_ms": 1725,
+      "p95_ms": 3948,
+      "max_ms": 4096
+    },
+    "/usage": {
+      "count": 298,
+      "avg_ms": 14,
+      "p95_ms": 70,
+      "max_ms": 195
+    },
+    "/auth/session": {
+      "count": 30,
+      "avg_ms": 1944,
+      "p95_ms": 3716,
+      "max_ms": 3906
+    },
+    "/usage/record": {
+      "count": 1162,
+      "avg_ms": 37,
+      "p95_ms": 148,
+      "max_ms": 266
+    }
+  },
+  "limits": {
+    "maxErrorRate": 0,
+    "maxUsageRecordP95Ms": 350,
+    "maxUsageRecordMaxMs": 700,
+    "maxUsageP95Ms": 1200,
+    "maxSignupP95Ms": 6000,
+    "maxSessionP95Ms": 4500
+  },
+  "checks": [
+    {
+      "name": "request error rate",
+      "pass": true,
+      "detail": "0.00% (limit 0.00%)"
+    },
+    {
+      "name": "usage/record p95 latency",
+      "pass": true,
+      "detail": "148ms (limit 350ms)"
+    },
+    {
+      "name": "usage/record max latency",
+      "pass": true,
+      "detail": "266ms (limit 700ms)"
+    },
+    {
+      "name": "usage p95 latency",
+      "pass": true,
+      "detail": "70ms (limit 1200ms)"
+    },
+    {
+      "name": "signup p95 latency",
+      "pass": true,
+      "detail": "3948ms (limit 6000ms)"
+    },
+    {
+      "name": "session p95 latency",
+      "pass": true,
+      "detail": "3716ms (limit 4500ms)"
+    }
+  ],
+  "error_samples": []
+}

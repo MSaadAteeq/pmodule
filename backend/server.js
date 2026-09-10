@@ -15,6 +15,51 @@ app.use(express.json());
 
 const DB_PATH = process.env.DB_PATH || "./parakeet_cloud.db";
 const db = new Database(DB_PATH);
+db.pragma("journal_mode = WAL");
+db.pragma("busy_timeout = 5000");
+
+const CHAOS_ENABLED = process.env.PARAKEET_CHAOS === "1";
+const CHAOS_ERROR_RATE = Math.min(1, Math.max(0, Number(process.env.PARAKEET_CHAOS_ERROR_RATE || 0)));
+const CHAOS_DELAY_MS = Math.max(0, Number(process.env.PARAKEET_CHAOS_DELAY_MS || 0));
+const CHAOS_JITTER_MS = Math.max(0, Number(process.env.PARAKEET_CHAOS_JITTER_MS || 0));
+const CHAOS_PATH_PREFIXES = (process.env.PARAKEET_CHAOS_PATH_PREFIXES || "/auth,/usage,/coupon")
+  .split(",")
+  .map((v) => v.trim())
+  .filter(Boolean);
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function shouldInjectChaos(pathname) {
+  if (pathname === "/health") return false;
+  if (CHAOS_PATH_PREFIXES.length === 0) return true;
+  return CHAOS_PATH_PREFIXES.some((prefix) => pathname.startsWith(prefix));
+}
+
+app.get("/health", (_req, res) => {
+  res.json({ ok: true });
+});
+
+app.use(async (req, res, next) => {
+  if (!CHAOS_ENABLED || !shouldInjectChaos(req.path)) {
+    next();
+    return;
+  }
+
+  const jitter = CHAOS_JITTER_MS > 0 ? Math.floor(Math.random() * (CHAOS_JITTER_MS + 1)) : 0;
+  const delayMs = CHAOS_DELAY_MS + jitter;
+  if (delayMs > 0) {
+    await sleep(delayMs);
+  }
+
+  if (CHAOS_ERROR_RATE > 0 && Math.random() < CHAOS_ERROR_RATE) {
+    res.status(503).json({ error: "Injected chaos failure (test mode)" });
+    return;
+  }
+
+  next();
+});
 
 const SUPERADMIN_EMAIL = "superadmin@parakeet.local";
 const SUPERADMIN_DEFAULT_PASSWORD = "SuperAdmin123!";

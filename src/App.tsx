@@ -57,6 +57,112 @@ const RESUME_MAX_STORAGE_CHARS = 400_000;
 const SPEECH_SILENCE_SUBMIT_MS = 900;
 /** After a finalized speech segment with no interim text, submit sooner so answers feel snappy. */
 const SPEECH_AFTER_FINAL_MS = 420;
+const ROMAN_URDU_MODE = "roman-urdu";
+
+function resolveSpeechRecognitionLang(languageMode: string): string {
+  if (languageMode === ROMAN_URDU_MODE) return "en-US";
+  return languageMode || "en-US";
+}
+
+/**
+ * Roman Urdu is usually transcribed as English words by Web Speech.
+ * Score each alternative and prefer the candidate that "looks" like Roman Urdu.
+ */
+function scoreRomanUrduTranscript(text: string): number {
+  const normalized = text.toLowerCase();
+  if (!normalized.trim()) return Number.NEGATIVE_INFINITY;
+
+  const tokens = normalized
+    .split(/[^a-z]+/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+  if (tokens.length === 0) return 0;
+
+  const commonRomanWords = new Set([
+    "aap",
+    "acha",
+    "achha",
+    "aj",
+    "allah",
+    "aur",
+    "bhi",
+    "bolo",
+    "chalo",
+    "hai",
+    "hain",
+    "han",
+    "ho",
+    "hoga",
+    "hon",
+    "hum",
+    "kar",
+    "karo",
+    "karna",
+    "kese",
+    "ka",
+    "ki",
+    "ko",
+    "kya",
+    "kyu",
+    "lekin",
+    "main",
+    "mera",
+    "meri",
+    "mujhe",
+    "nah",
+    "nahi",
+    "nhi",
+    "nahi",
+    "par",
+    "pe",
+    "phr",
+    "phir",
+    "raha",
+    "rahi",
+    "sahi",
+    "sirf",
+    "thik",
+    "theek",
+    "to",
+    "tum",
+    "us",
+    "wala",
+    "wali",
+    "ye",
+    "yar",
+    "yani",
+  ]);
+
+  let score = 0;
+  for (const token of tokens) {
+    if (commonRomanWords.has(token)) score += 3;
+    if (/(kh|gh|ch|sh|ph|bh|aa|ee|oo|ai|ay)/.test(token)) score += 1;
+    if (/^(hai|hain|ho|tha|thi|the|kya|nahi|mujhe|aap|mera|meri|tum)$/.test(token)) score += 2;
+  }
+
+  const punctuationPenalty = (normalized.match(/[^\w\s]/g) ?? []).length * 0.15;
+  return score - punctuationPenalty;
+}
+
+function pickBestTranscriptAlternative(
+  result: SpeechRecognitionResult,
+  preferRomanUrdu: boolean
+): string {
+  const fallback = result[0]?.transcript ?? "";
+  if (!preferRomanUrdu || result.length <= 1) return fallback;
+
+  let bestTranscript = fallback;
+  let bestScore = scoreRomanUrduTranscript(fallback);
+  for (let i = 1; i < result.length; i++) {
+    const candidate = result[i]?.transcript ?? "";
+    const candidateScore = scoreRomanUrduTranscript(candidate);
+    if (candidateScore > bestScore) {
+      bestScore = candidateScore;
+      bestTranscript = candidate;
+    }
+  }
+  return bestTranscript;
+}
 
 /** Tauri `innerSize()` is physical pixels; `LogicalSize` expects logical (CSS) pixels. */
 async function tauriLogicalInnerSize(): Promise<{ width: number; height: number }> {
@@ -122,6 +228,8 @@ function App() {
   const silenceSubmitTimerRef = useRef<number | null>(null);
   const submitAnswerInFlightRef = useRef(false);
   const sessionStartTimeRef = useRef<number>(0);
+  const startPracticeRef = useRef<(() => Promise<void>) | null>(null);
+  const stopPracticeRef = useRef<(() => Promise<void>) | null>(null);
   const showTitleBarControls = isTauri();
   const [showAssistantScreen, setShowAssistantScreen] = useState(false);
   const [showCloudModal, setShowCloudModal] = useState(false);
@@ -555,10 +663,11 @@ function App() {
 
     try {
       const recognition = new SpeechRecognitionAPI();
+      const romanUrduMode = sessionLanguage === ROMAN_URDU_MODE;
       recognition.continuous = true;
       recognition.interimResults = true;
-      recognition.maxAlternatives = 1;
-      recognition.lang = sessionLanguage || "en-US";
+      recognition.maxAlternatives = romanUrduMode ? 5 : 1;
+      recognition.lang = resolveSpeechRecognitionLang(sessionLanguage);
 
       const clearSilenceTimer = () => {
         if (silenceSubmitTimerRef.current != null) {
@@ -590,7 +699,7 @@ function App() {
         let finalText = "";
         let interimText = "";
         for (let i = 0; i < e.results.length; i++) {
-          const part = e.results[i][0]?.transcript ?? "";
+          const part = pickBestTranscriptAlternative(e.results[i], romanUrduMode);
           if (e.results[i].isFinal) {
             finalText += part;
           } else {
@@ -707,6 +816,27 @@ function App() {
       }
     }, 120);
   };
+  startPracticeRef.current = startPractice;
+  stopPracticeRef.current = stopPractice;
+
+  // Keyboard shortcuts: PageUp starts listening, PageDown stops listening.
+  useEffect(() => {
+    if (!isTauri()) return;
+    const unlistenStart = listen("parakeet_start_listening", () => {
+      if (isListeningRef.current) return;
+      const fn = startPracticeRef.current;
+      if (fn) void fn();
+    });
+    const unlistenStop = listen("parakeet_stop_listening", () => {
+      if (!isListeningRef.current) return;
+      const fn = stopPracticeRef.current;
+      if (fn) void fn();
+    });
+    return () => {
+      unlistenStart.then((fn) => fn()).catch(() => {});
+      unlistenStop.then((fn) => fn()).catch(() => {});
+    };
+  }, []);
 
   const floatingAnalyzeScreen = async () => {
     if (!isTauri() || floatingAnalyzeBusy) return;
@@ -783,6 +913,78 @@ function App() {
       setTimeout(() => setStatus(""), 4500);
     }
   };
+
+  const focusQuestionComposer = () => {
+    const compactMode = interviewFloatingBar && showAssistantScreen && setupComplete && !showSetupForm;
+    if (compactMode) setFloatingChatOpen(true);
+
+    const focusInput = () => {
+      const input = document.querySelector<HTMLInputElement>(
+        ".fn-chat-input, .controls-type-input, .listening-type-input"
+      );
+      if (!input) {
+        setStatus("No typing field visible. Open chat panel or stop listening to type.");
+        window.setTimeout(() => setStatus(""), 2800);
+        return;
+      }
+      input.focus();
+      const end = input.value.length;
+      input.setSelectionRange(end, end);
+    };
+
+    // Compact mode may need one paint after opening chat.
+    window.setTimeout(focusInput, compactMode ? 80 : 0);
+  };
+
+  // Keyboard shortcuts:
+  // ArrowRight -> ensure listening is ON
+  // ArrowLeft  -> generate AI answer (auto-stops listening via floatingAiAnswer)
+  // ArrowDown  -> focus typed question input
+  useEffect(() => {
+    const onShortcut = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
+      if (!showAssistantScreen) return;
+      const activeEl = document.activeElement as HTMLElement | null;
+      if (
+        activeEl &&
+        (activeEl.tagName === "INPUT" ||
+          activeEl.tagName === "TEXTAREA" ||
+          activeEl.isContentEditable)
+      ) {
+        return;
+      }
+
+      if (e.key === "ArrowRight") {
+        e.preventDefault();
+        if (!isListeningRef.current) {
+          void startPractice();
+        }
+        return;
+      }
+
+      if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        void floatingAiAnswer();
+        return;
+      }
+
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        focusQuestionComposer();
+      }
+    };
+
+    window.addEventListener("keydown", onShortcut);
+    return () => window.removeEventListener("keydown", onShortcut);
+  }, [
+    floatingAiAnswer,
+    interviewFloatingBar,
+    setupComplete,
+    showAssistantScreen,
+    showSetupForm,
+    startPractice,
+    stopPractice,
+  ]);
 
   const exitFloatingBarToFullAssistant = () => {
     setInterviewFloatingBar(false);
@@ -1351,7 +1553,7 @@ function App() {
             </p>
           )}
           <p className="privacy-badge">
-            🔒 Screen-share safe · ⌨️ <strong>Ctrl+Alt+A</strong> front · <strong>Ctrl+Alt+S</strong> capture
+            🔒 Screen-share safe · ⌨️ <strong>Ctrl+Alt+A</strong> front · <strong>Ctrl+Alt+S</strong> capture · <strong>PgUp</strong> start · <strong>PgDn</strong> stop
           </p>
           {session?.user?.email && (
             <Tooltip label="Signed in">
@@ -1637,6 +1839,7 @@ function App() {
                     value={sessionLanguage}
                     onChange={(e) => setSessionLanguage(e.target.value)}
                   >
+                    <option value={ROMAN_URDU_MODE}>Roman Urdu (recommended)</option>
                     <option value="en-US">English</option>
                     <option value="es-ES">Spanish</option>
                     <option value="fr-FR">French</option>
@@ -1644,6 +1847,10 @@ function App() {
                     <option value="hi-IN">Hindi</option>
                     <option value="ur-PK">Urdu</option>
                   </select>
+                  <p className="audio-tip" style={{ marginTop: "var(--space-2)", marginBottom: 0 }}>
+                    For Roman Urdu, choose <strong>Roman Urdu (recommended)</strong>; it uses a better transcript
+                    fallback for words typed in English letters.
+                  </p>
                 </div>
                 <div className="pa-field">
                   <div className="pa-field-header">
